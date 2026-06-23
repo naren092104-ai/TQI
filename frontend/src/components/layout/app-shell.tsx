@@ -40,7 +40,7 @@ const expandableNav = [
 ] as const;
 
 const moreNav = [
-  { to: "/admins", label: "Admins", icon: UserCog },
+  { to: "/admins", label: "User Management", icon: UserCog },
   { to: "/students", label: "Students", icon: Users },
   { to: "/volunteers", label: "Volunteers", icon: HeartHandshake },
   { to: "/sessions", label: "Sessions", icon: BookOpen },

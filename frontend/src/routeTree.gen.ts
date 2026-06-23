@@ -32,6 +32,11 @@ import { Route as AdvanceRouteImport } from './routes/advance'
 import { Route as AdminsRouteImport } from './routes/admins'
 import { Route as AcademicYearsRouteImport } from './routes/academic-years'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AttendanceVolunteersRouteImport } from './routes/attendance/volunteers'
+import { Route as AttendanceStudentsRouteImport } from './routes/attendance/students'
+import { Route as AttendanceHomeworkRouteImport } from './routes/attendance/homework'
+import { Route as AttendanceHistoryRouteImport } from './routes/attendance/history'
+import { Route as AttendanceAnalyticsRouteImport } from './routes/attendance/analytics'
 
 const VolunteersRoute = VolunteersRouteImport.update({
   id: '/volunteers',
@@ -148,6 +153,31 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AttendanceVolunteersRoute = AttendanceVolunteersRouteImport.update({
+  id: '/volunteers',
+  path: '/volunteers',
+  getParentRoute: () => AttendanceRoute,
+} as any)
+const AttendanceStudentsRoute = AttendanceStudentsRouteImport.update({
+  id: '/students',
+  path: '/students',
+  getParentRoute: () => AttendanceRoute,
+} as any)
+const AttendanceHomeworkRoute = AttendanceHomeworkRouteImport.update({
+  id: '/homework',
+  path: '/homework',
+  getParentRoute: () => AttendanceRoute,
+} as any)
+const AttendanceHistoryRoute = AttendanceHistoryRouteImport.update({
+  id: '/history',
+  path: '/history',
+  getParentRoute: () => AttendanceRoute,
+} as any)
+const AttendanceAnalyticsRoute = AttendanceAnalyticsRouteImport.update({
+  id: '/analytics',
+  path: '/analytics',
+  getParentRoute: () => AttendanceRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -155,7 +185,7 @@ export interface FileRoutesByFullPath {
   '/admins': typeof AdminsRoute
   '/advance': typeof AdvanceRoute
   '/approvals': typeof ApprovalsRoute
-  '/attendance': typeof AttendanceRoute
+  '/attendance': typeof AttendanceRouteWithChildren
   '/audit-logs': typeof AuditLogsRoute
   '/clusters': typeof ClustersRoute
   '/colleges': typeof CollegesRoute
@@ -173,6 +203,11 @@ export interface FileRoutesByFullPath {
   '/timeline': typeof TimelineRoute
   '/villages': typeof VillagesRoute
   '/volunteers': typeof VolunteersRoute
+  '/attendance/analytics': typeof AttendanceAnalyticsRoute
+  '/attendance/history': typeof AttendanceHistoryRoute
+  '/attendance/homework': typeof AttendanceHomeworkRoute
+  '/attendance/students': typeof AttendanceStudentsRoute
+  '/attendance/volunteers': typeof AttendanceVolunteersRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -180,7 +215,7 @@ export interface FileRoutesByTo {
   '/admins': typeof AdminsRoute
   '/advance': typeof AdvanceRoute
   '/approvals': typeof ApprovalsRoute
-  '/attendance': typeof AttendanceRoute
+  '/attendance': typeof AttendanceRouteWithChildren
   '/audit-logs': typeof AuditLogsRoute
   '/clusters': typeof ClustersRoute
   '/colleges': typeof CollegesRoute
@@ -198,6 +233,11 @@ export interface FileRoutesByTo {
   '/timeline': typeof TimelineRoute
   '/villages': typeof VillagesRoute
   '/volunteers': typeof VolunteersRoute
+  '/attendance/analytics': typeof AttendanceAnalyticsRoute
+  '/attendance/history': typeof AttendanceHistoryRoute
+  '/attendance/homework': typeof AttendanceHomeworkRoute
+  '/attendance/students': typeof AttendanceStudentsRoute
+  '/attendance/volunteers': typeof AttendanceVolunteersRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -206,7 +246,7 @@ export interface FileRoutesById {
   '/admins': typeof AdminsRoute
   '/advance': typeof AdvanceRoute
   '/approvals': typeof ApprovalsRoute
-  '/attendance': typeof AttendanceRoute
+  '/attendance': typeof AttendanceRouteWithChildren
   '/audit-logs': typeof AuditLogsRoute
   '/clusters': typeof ClustersRoute
   '/colleges': typeof CollegesRoute
@@ -224,6 +264,11 @@ export interface FileRoutesById {
   '/timeline': typeof TimelineRoute
   '/villages': typeof VillagesRoute
   '/volunteers': typeof VolunteersRoute
+  '/attendance/analytics': typeof AttendanceAnalyticsRoute
+  '/attendance/history': typeof AttendanceHistoryRoute
+  '/attendance/homework': typeof AttendanceHomeworkRoute
+  '/attendance/students': typeof AttendanceStudentsRoute
+  '/attendance/volunteers': typeof AttendanceVolunteersRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -251,6 +296,11 @@ export interface FileRouteTypes {
     | '/timeline'
     | '/villages'
     | '/volunteers'
+    | '/attendance/analytics'
+    | '/attendance/history'
+    | '/attendance/homework'
+    | '/attendance/students'
+    | '/attendance/volunteers'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -276,6 +326,11 @@ export interface FileRouteTypes {
     | '/timeline'
     | '/villages'
     | '/volunteers'
+    | '/attendance/analytics'
+    | '/attendance/history'
+    | '/attendance/homework'
+    | '/attendance/students'
+    | '/attendance/volunteers'
   id:
     | '__root__'
     | '/'
@@ -301,6 +356,11 @@ export interface FileRouteTypes {
     | '/timeline'
     | '/villages'
     | '/volunteers'
+    | '/attendance/analytics'
+    | '/attendance/history'
+    | '/attendance/homework'
+    | '/attendance/students'
+    | '/attendance/volunteers'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -309,7 +369,7 @@ export interface RootRouteChildren {
   AdminsRoute: typeof AdminsRoute
   AdvanceRoute: typeof AdvanceRoute
   ApprovalsRoute: typeof ApprovalsRoute
-  AttendanceRoute: typeof AttendanceRoute
+  AttendanceRoute: typeof AttendanceRouteWithChildren
   AuditLogsRoute: typeof AuditLogsRoute
   ClustersRoute: typeof ClustersRoute
   CollegesRoute: typeof CollegesRoute
@@ -492,8 +552,63 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/attendance/volunteers': {
+      id: '/attendance/volunteers'
+      path: '/volunteers'
+      fullPath: '/attendance/volunteers'
+      preLoaderRoute: typeof AttendanceVolunteersRouteImport
+      parentRoute: typeof AttendanceRoute
+    }
+    '/attendance/students': {
+      id: '/attendance/students'
+      path: '/students'
+      fullPath: '/attendance/students'
+      preLoaderRoute: typeof AttendanceStudentsRouteImport
+      parentRoute: typeof AttendanceRoute
+    }
+    '/attendance/homework': {
+      id: '/attendance/homework'
+      path: '/homework'
+      fullPath: '/attendance/homework'
+      preLoaderRoute: typeof AttendanceHomeworkRouteImport
+      parentRoute: typeof AttendanceRoute
+    }
+    '/attendance/history': {
+      id: '/attendance/history'
+      path: '/history'
+      fullPath: '/attendance/history'
+      preLoaderRoute: typeof AttendanceHistoryRouteImport
+      parentRoute: typeof AttendanceRoute
+    }
+    '/attendance/analytics': {
+      id: '/attendance/analytics'
+      path: '/analytics'
+      fullPath: '/attendance/analytics'
+      preLoaderRoute: typeof AttendanceAnalyticsRouteImport
+      parentRoute: typeof AttendanceRoute
+    }
   }
 }
+
+interface AttendanceRouteChildren {
+  AttendanceAnalyticsRoute: typeof AttendanceAnalyticsRoute
+  AttendanceHistoryRoute: typeof AttendanceHistoryRoute
+  AttendanceHomeworkRoute: typeof AttendanceHomeworkRoute
+  AttendanceStudentsRoute: typeof AttendanceStudentsRoute
+  AttendanceVolunteersRoute: typeof AttendanceVolunteersRoute
+}
+
+const AttendanceRouteChildren: AttendanceRouteChildren = {
+  AttendanceAnalyticsRoute: AttendanceAnalyticsRoute,
+  AttendanceHistoryRoute: AttendanceHistoryRoute,
+  AttendanceHomeworkRoute: AttendanceHomeworkRoute,
+  AttendanceStudentsRoute: AttendanceStudentsRoute,
+  AttendanceVolunteersRoute: AttendanceVolunteersRoute,
+}
+
+const AttendanceRouteWithChildren = AttendanceRoute._addFileChildren(
+  AttendanceRouteChildren,
+)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
@@ -501,7 +616,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminsRoute: AdminsRoute,
   AdvanceRoute: AdvanceRoute,
   ApprovalsRoute: ApprovalsRoute,
-  AttendanceRoute: AttendanceRoute,
+  AttendanceRoute: AttendanceRouteWithChildren,
   AuditLogsRoute: AuditLogsRoute,
   ClustersRoute: ClustersRoute,
   CollegesRoute: CollegesRoute,

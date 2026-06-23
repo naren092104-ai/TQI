@@ -1,4 +1,4 @@
-import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { createFileRoute, Outlet, useRouter } from "@tanstack/react-router";
 import { useEffect } from "react";
 
 export const Route = createFileRoute("/attendance")({
@@ -8,10 +8,12 @@ export const Route = createFileRoute("/attendance")({
 
 function Page() {
   const router = useRouter();
-  
+
   useEffect(() => {
-    router.navigate({ to: "/attendance/students" });
+    if (router.state.location.pathname === "/attendance") {
+      router.navigate({ to: "/attendance/students" });
+    }
   }, [router]);
 
-  return null;
+  return <Outlet />;
 }

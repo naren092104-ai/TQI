@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -21,7 +22,8 @@ export const Route = createFileRoute("/clusters")({
   component: Clusters,
 });
 
-type PanchayatSetup = { name: string; villagesCount: number; villageNames: string[]; villageSchools: { [key: number]: string[] } };
+type VillageSetup = { name: string; schoolCount: number; schoolNames: string[] };
+type PanchayatSetup = { name: string; villagesCount: number; villages: VillageSetup[] };
 
 type ClusterWizardForm = { name: string };
 
@@ -29,9 +31,9 @@ type PanchayatForm = { name: string; head: string };
 
 type VillageForm = { name: string; panchayatId: string; population: number };
 
-type ClusterEditForm = { name: string };
+type ClusterEditForm = { name: string; district: string; status: string };
 
-type AdminEditForm = { name: string; email: string; username: string; phone: string; college?: string; clusterId?: string };
+type AdminEditForm = { name: string; email: string; username: string; phone: string };
 
 function Clusters() {
   const s = useStore();
@@ -73,6 +75,7 @@ function Clusters() {
     setView(c);
   };
 
+  const stepLabels = ["Cluster Information", "Panchayat Setup", "Village Setup", "School Setup", "Review Hierarchy"];
   const countFor = (cid: string) => {
     const p = s.panchayats.filter((x) => x.clusterId === cid);
     const v = s.villages.filter((x) => p.some((y) => y.id === x.panchayatId));
@@ -125,7 +128,7 @@ function Clusters() {
       const existing = prev[i];
       return existing
         ? { ...existing, name: existing.name || `Panchayat ${i + 1}` }
-        : { name: `Panchayat ${i + 1}`, villagesCount: 0, villageNames: [], villageSchools: {} };
+        : { name: `Panchayat ${i + 1}`, villagesCount: 0, villages: [] };
     }));
   };
 
@@ -136,37 +139,56 @@ function Clusters() {
   const updatePanchayatVillageCount = (index: number, count: number) => {
     setPanchayatsSetup((prev) => prev.map((p, i) => {
       if (i !== index) return p;
-      const names = Array.from({ length: count }, (_, j) => p.villageNames[j] ?? `Village ${j + 1}`);
-      const schools = { ...p.villageSchools };
-      for (let j = 0; j < count; j++) {
-        if (!schools[j]) schools[j] = [];
-      }
-      return { ...p, villagesCount: count, villageNames: names, villageSchools: schools };
+      const villages = Array.from({ length: count }, (_, j) => {
+        const existing = p.villages[j];
+        return existing
+          ? { ...existing, name: existing.name || `Village ${j + 1}` }
+          : { name: `Village ${j + 1}`, schoolCount: 0, schoolNames: [] };
+      });
+      return { ...p, villagesCount: count, villages };
     }));
   };
 
   const updateVillageName = (pIndex: number, vIndex: number, value: string) => {
     setPanchayatsSetup((prev) => prev.map((p, i) => {
       if (i !== pIndex) return p;
-      return { ...p, villageNames: p.villageNames.map((vn, j) => j === vIndex ? value : vn) };
+      return {
+        ...p,
+        villages: p.villages.map((v, j) => j === vIndex ? { ...v, name: value } : v),
+      };
     }));
   };
 
   const updateVillageSchoolCount = (pIndex: number, vIndex: number, count: number) => {
     setPanchayatsSetup((prev) => prev.map((p, i) => {
       if (i !== pIndex) return p;
-      const schools = { ...p.villageSchools };
-      schools[vIndex] = Array.from({ length: count }, (_, j) => schools[vIndex]?.[j] ?? `School ${j + 1}`);
-      return { ...p, villageSchools: schools };
+      return {
+        ...p,
+        villages: p.villages.map((v, j) => {
+          if (j !== vIndex) return v;
+          return {
+            ...v,
+            schoolCount: count,
+            schoolNames: Array.from({ length: count }, (_, k) => v.schoolNames[k] ?? `School ${k + 1}`),
+          };
+        }),
+      };
     }));
   };
 
   const updateVillageSchoolName = (pIndex: number, vIndex: number, sIndex: number, value: string) => {
     setPanchayatsSetup((prev) => prev.map((p, i) => {
       if (i !== pIndex) return p;
-      const schools = { ...p.villageSchools };
-      schools[vIndex] = schools[vIndex].map((s, j) => j === sIndex ? value : s);
-      return { ...p, villageSchools: schools };
+      return {
+        ...p,
+        villages: p.villages.map((v, j) => {
+          if (j !== vIndex) return v;
+          return {
+            ...v,
+            schoolNames: v.schoolNames.map((name, k) => k === sIndex ? value : name),
+          };
+        }),
+      };
     }));
   };
 
@@ -286,10 +308,14 @@ function Clusters() {
     }
     if (step === 3) {
       if (panchayatsSetup.some((p) => p.villagesCount < 1)) return toast.error("Each Panchayat needs at least one Village");
-      if (panchayatsSetup.some((p) => p.villageNames.some((vn) => !vn.trim()))) return toast.error("All Village names are required");
-      if (panchayatsSetup.some((p) => Object.keys(p.villageSchools).some((v) => (p.villageSchools[Number(v)]?.length ?? 0) === 0))) return toast.error("Each Village needs at least one School");
-      if (panchayatsSetup.some((p) => Object.keys(p.villageSchools).some((v) => p.villageSchools[Number(v)].some((sn) => !sn.trim())))) return toast.error("All School names are required");
+      if (panchayatsSetup.some((p) => p.villages.some((v) => !v.name.trim()))) return toast.error("All Village names are required");
       setStep(4);
+      return;
+    }
+    if (step === 4) {
+      if (panchayatsSetup.some((p) => p.villages.some((v) => v.schoolCount < 1))) return toast.error("Each Village needs at least one School");
+      if (panchayatsSetup.some((p) => p.villages.some((v) => v.schoolNames.some((sn) => !sn.trim())))) return toast.error("All School names are required");
+      setStep(5);
       return;
     }
   };
@@ -299,9 +325,9 @@ function Clusters() {
     if (panchayatsSetup.length === 0) return toast.error("Add at least one Panchayat");
     if (panchayatsSetup.some((p) => !p.name.trim())) return toast.error("All Panchayat names are required");
     if (panchayatsSetup.some((p) => p.villagesCount < 1)) return toast.error("Each Panchayat needs at least one Village count");
-    if (panchayatsSetup.some((p) => p.villageNames.some((vn) => !vn.trim()))) return toast.error("All Village names are required");
-    if (panchayatsSetup.some((p) => Object.keys(p.villageSchools).some((v) => (p.villageSchools[Number(v)]?.length ?? 0) === 0))) return toast.error("Each Village needs at least one School");
-    if (panchayatsSetup.some((p) => Object.keys(p.villageSchools).some((v) => p.villageSchools[Number(v)].some((sn) => !sn.trim())))) return toast.error("All School names are required");
+    if (panchayatsSetup.some((p) => p.villages.some((v) => !v.name.trim()))) return toast.error("All Village names are required");
+    if (panchayatsSetup.some((p) => p.villages.some((v) => v.schoolCount < 1))) return toast.error("Each Village needs at least one School count");
+    if (panchayatsSetup.some((p) => p.villages.some((v) => v.schoolNames.some((sn) => !sn.trim())))) return toast.error("All School names are required");
 
     const clusterId = newId();
     const cluster = {
@@ -320,12 +346,11 @@ function Clusters() {
     panchayatsSetup.forEach((p) => {
       const pId = newId();
       s.upsert("panchayats", { id: pId, createdAt: new Date().toISOString(), name: p.name, clusterId, head: "" });
-      p.villageNames.forEach((vName, vIndex) => {
+      p.villages.forEach((v) => {
         const vId = newId();
-        s.upsert("villages", { id: vId, createdAt: new Date().toISOString(), name: vName, panchayatId: pId, population: 1000 });
-        // Save schools for this village
-        (p.villageSchools[vIndex] || []).forEach((schoolName) => {
-          s.upsert("schools", { id: newId(), createdAt: new Date().toISOString(), name: schoolName, villageId: vId, principal: "", population: 0 });
+        s.upsert("villages", { id: vId, createdAt: new Date().toISOString(), name: v.name, panchayatId: pId, population: 1000 });
+        v.schoolNames.forEach((schoolName) => {
+          s.upsert("schools", { id: newId(), createdAt: new Date().toISOString(), name: schoolName, villageId: vId, principal: "", type: "Middle" });
         });
       });
     });
@@ -385,42 +410,49 @@ function Clusters() {
       />
 
       <Dialog open={open} onOpenChange={(o) => !o && setOpen(false)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {step === 1 && "Cluster Information"}
-              {step === 2 && "Panchayats"}
-              {step === 3 && "Villages"}
-              {step === 4 && "Review"}
-            </DialogTitle>
-          </DialogHeader>
-
-          {step === 1 && (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="sm:col-span-2"><Label>Cluster Name</Label><Input value={clusterForm.name} onChange={(e) => setClusterForm({ ...clusterForm, name: e.target.value })} /></div>
-            </div>
-          )}
-
-          {step === 2 && (
-            <div className="space-y-4">
-              <div>
-                <Label>How many Panchayats are there in this Cluster?</Label>
-                <Input type="number" min={0} value={panchayatCount || ""} onChange={(e) => generatePanchayats(Number(e.target.value) || 0)} />
-              </div>
-              {panchayatsSetup.length > 0 && (
-                <div className="space-y-3">
-                  {panchayatsSetup.map((p, index) => (
-                    <div key={index} className="grid gap-3 sm:grid-cols-2">
-                      <div>
-                        <Label>{`Panchayat ${index + 1}`}</Label>
-                        <Input value={p.name} onChange={(e) => updatePanchayatName(index, e.target.value)} />
-                      </div>
+        <DialogContent className="max-h-[90vh] w-full sm:max-w-3xl overflow-y-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
+          <div className="flex flex-col">
+            <DialogHeader className="sticky top-0 z-20 bg-background border-b border-border/80 py-4">
+              <DialogTitle>{stepLabels[step - 1]}</DialogTitle>
+              <div className="mt-3 grid grid-cols-5 gap-2 text-[11px] uppercase text-muted-foreground">
+                {stepLabels.map((label, index) => (
+                  <div key={label} className={step === index + 1 ? "font-semibold text-foreground" : "text-muted-foreground"}>
+                    <div className="mb-1 flex h-6 items-center justify-center rounded-full border px-2 text-xs" aria-current={step === index + 1 ? "step" : undefined}>
+                      {index + 1}
                     </div>
-                  ))}
+                    <div className="truncate">{label}</div>
+                  </div>
+                ))}
+              </div>
+            </DialogHeader>
+
+          <div className="flex-1 min-h-0 px-0 py-4">
+            {step === 1 && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="sm:col-span-2"><Label>Cluster Name</Label><Input value={clusterForm.name} onChange={(e) => setClusterForm({ ...clusterForm, name: e.target.value })} /></div>
+              </div>
+            )}
+
+            {step === 2 && (
+              <div className="space-y-4">
+                <div>
+                  <Label>How many Panchayats are there in this Cluster?</Label>
+                  <Input type="number" min={0} value={panchayatCount || ""} onChange={(e) => generatePanchayats(Number(e.target.value) || 0)} />
                 </div>
-              )}
-            </div>
-          )}
+                {panchayatsSetup.length > 0 && (
+                  <div className="space-y-3">
+                    {panchayatsSetup.map((p, index) => (
+                      <div key={index} className="grid gap-3 sm:grid-cols-2">
+                        <div>
+                          <Label>{`Panchayat ${index + 1}`}</Label>
+                          <Input value={p.name} onChange={(e) => updatePanchayatName(index, e.target.value)} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
           {step === 3 && (
             <div className="space-y-4">
@@ -436,26 +468,12 @@ function Clusters() {
                       <Input type="number" min={0} value={p.villagesCount || ""} onChange={(e) => updatePanchayatVillageCount(pIndex, Number(e.target.value) || 0)} />
                     </div>
                   </div>
-                  {p.villageNames.length > 0 && (
+                  {p.villages.length > 0 && (
                     <div className="space-y-4">
-                      {p.villageNames.map((name, villageIndex) => (
+                      {p.villages.map((village, villageIndex) => (
                         <div key={villageIndex} className="rounded-lg border border-border/50 bg-accent/20 p-3">
                           <Label>{`Village ${villageIndex + 1}`}</Label>
-                          <Input value={name} onChange={(e) => updateVillageName(pIndex, villageIndex, e.target.value)} className="mb-3" />
-                          <div className="mb-2">
-                            <Label className="text-xs">Number of Schools in {name || `Village ${villageIndex + 1}`}</Label>
-                            <Input type="number" min={0} value={(p.villageSchools[villageIndex]?.length || 0)} onChange={(e) => updateVillageSchoolCount(pIndex, villageIndex, Number(e.target.value) || 0)} />
-                          </div>
-                          {(p.villageSchools[villageIndex]?.length ?? 0) > 0 && (
-                            <div className="space-y-2 border-t border-border/50 pt-3">
-                              {p.villageSchools[villageIndex].map((school, schoolIndex) => (
-                                <div key={schoolIndex}>
-                                  <Label className="text-xs">{`School ${schoolIndex + 1}`}</Label>
-                                  <Input value={school} onChange={(e) => updateVillageSchoolName(pIndex, villageIndex, schoolIndex, e.target.value)} size={35} />
-                                </div>
-                              ))}
-                            </div>
-                          )}
+                          <Input value={village.name} onChange={(e) => updateVillageName(pIndex, villageIndex, e.target.value)} className="mb-3" />
                         </div>
                       ))}
                     </div>
@@ -465,6 +483,41 @@ function Clusters() {
             </div>
           )}
 
+          {step === 4 && (
+            <div className="space-y-4">
+              {panchayatsSetup.map((p, pIndex) => (
+                <div key={pIndex} className="rounded-lg border border-border p-4">
+                  <div className="mb-3 text-sm font-medium">{p.name || `Panchayat ${pIndex + 1}`}</div>
+                  <div className="space-y-4">
+                    {p.villages.map((village, vIndex) => (
+                      <div key={vIndex} className="rounded-lg border border-border/50 bg-accent/20 p-3">
+                        <div className="mb-3 text-sm font-medium">Village: {village.name || `Village ${vIndex + 1}`}</div>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <Label>Number of Schools</Label>
+                            <Input type="number" min={0} value={village.schoolCount || ""} onChange={(e) => updateVillageSchoolCount(pIndex, vIndex, Number(e.target.value) || 0)} />
+                          </div>
+                        </div>
+                        {village.schoolNames.length > 0 && (
+                          <div className="space-y-3 border-t border-border/50 pt-3">
+                            {village.schoolNames.map((schoolName, sIndex) => (
+                              <div key={sIndex}>
+                                <Label className="text-xs">{`School ${sIndex + 1}`}</Label>
+                                <Input value={schoolName} onChange={(e) => updateVillageSchoolName(pIndex, vIndex, sIndex, e.target.value)} />
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {step === 5 && (
+            <div className="space-y-4">
               <div className="rounded-lg border border-border bg-muted p-4">
                 <div className="text-xs uppercase text-muted-foreground">Cluster</div>
                 <div className="mt-2 text-sm font-semibold">{clusterForm.name}</div>
@@ -472,20 +525,19 @@ function Clusters() {
               <div className="rounded-lg border border-border bg-muted p-4">
                 <div className="text-sm font-semibold">Review hierarchy</div>
                 <div className="mt-3 space-y-3">
+                  <div>{clusterForm.name}</div>
                   {panchayatsSetup.map((p, index) => (
-                    <div key={index}>
-                      <div className="font-medium">{p.name}</div>
+                    <div key={index} className="ml-4 space-y-2">
+                      <div className="font-medium">▼ {p.name}</div>
                       <div className="ml-4 space-y-2">
-                        {p.villageNames.map((vn, vi) => (
+                        {p.villages.map((village, vi) => (
                           <div key={vi}>
-                            <div className="text-sm text-muted-foreground">{vn}</div>
-                            {(p.villageSchools[vi]?.length ?? 0) > 0 && (
-                              <div className="ml-4 space-y-1">
-                                {p.villageSchools[vi].map((sn, si) => (
-                                  <div key={si} className="text-xs text-muted-foreground">{sn}</div>
-                                ))}
-                              </div>
-                            )}
+                            <div className="text-sm">• {village.name}</div>
+                            <div className="ml-4 space-y-1 text-xs text-muted-foreground">
+                              {village.schoolNames.map((school, si) => (
+                                <div key={si}>◦ {school}</div>
+                              ))}
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -495,26 +547,28 @@ function Clusters() {
               </div>
             </div>
           )}
+        </div>
 
-          <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-between">
-            <div className="flex gap-2">
+          <DialogFooter className="sticky bottom-0 z-20 bg-background border-t border-border/80 py-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:justify-between">
               <Button variant="outline" onClick={() => {
                 if (step === 1) { setOpen(false); return; }
                 setStep((prev) => Math.max(1, prev - 1));
               }}>
                 {step === 1 ? "Cancel" : "Back"}
               </Button>
-            </div>
-            <div className="flex gap-2">
-              {step < 4 ? (
-                <Button onClick={handleWizardNext}>Next</Button>
-              ) : (
-                <Button onClick={createCluster}>Create Cluster</Button>
-              )}
+              <div className="flex gap-2">
+                {step < 5 ? (
+                  <Button onClick={handleWizardNext}>Next</Button>
+                ) : (
+                  <Button onClick={createCluster}>Save Cluster</Button>
+                )}
+              </div>
             </div>
           </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </div>
+      </DialogContent>
+    </Dialog>
 
       <Sheet open={!!view} onOpenChange={(o) => !o && setView(null)}>
         <SheetContent className="w-full sm:max-w-2xl">
@@ -604,20 +658,22 @@ function Clusters() {
       </Sheet>
 
       <Dialog open={clusterEditOpen} onOpenChange={setClusterEditOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[70vh] w-full sm:max-w-2xl overflow-hidden">
           <DialogHeader><DialogTitle>Edit Cluster</DialogTitle></DialogHeader>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="sm:col-span-2"><Label>Name</Label><Input value={clusterEditForm.name} onChange={(e) => setClusterEditForm({ ...clusterEditForm, name: e.target.value })} /></div>
-            <div><Label>District</Label><Input value={clusterEditForm.district} onChange={(e) => setClusterEditForm({ ...clusterEditForm, district: e.target.value })} /></div>
-            <div>
-              <Label>Status</Label>
-              <Select value={clusterEditForm.status} onValueChange={(value) => setClusterEditForm({ ...clusterEditForm, status: value })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Active">Active</SelectItem>
-                  <SelectItem value="Inactive">Inactive</SelectItem>
-                </SelectContent>
-              </Select>
+          <div className="overflow-y-auto px-0 py-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="sm:col-span-2"><Label>Name</Label><Input value={clusterEditForm.name} onChange={(e) => setClusterEditForm({ ...clusterEditForm, name: e.target.value })} /></div>
+              <div><Label>District</Label><Input value={clusterEditForm.district} onChange={(e) => setClusterEditForm({ ...clusterEditForm, district: e.target.value })} /></div>
+              <div>
+                <Label>Status</Label>
+                <Select value={clusterEditForm.status} onValueChange={(value) => setClusterEditForm({ ...clusterEditForm, status: value })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Active">Active</SelectItem>
+                    <SelectItem value="Inactive">Inactive</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </div>
           <DialogFooter><Button variant="outline" onClick={() => setClusterEditOpen(false)}>Cancel</Button><Button onClick={saveClusterEdit}>Save</Button></DialogFooter>
@@ -625,44 +681,50 @@ function Clusters() {
       </Dialog>
 
       <Dialog open={adminEditOpen} onOpenChange={setAdminEditOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[70vh] w-full sm:max-w-2xl overflow-hidden">
           <DialogHeader><DialogTitle>Edit Admin</DialogTitle></DialogHeader>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="sm:col-span-2"><Label>Name</Label><Input value={adminEditForm.name} onChange={(e) => setAdminEditForm({ ...adminEditForm, name: e.target.value })} /></div>
-            <div><Label>Email</Label><Input value={adminEditForm.email} onChange={(e) => setAdminEditForm({ ...adminEditForm, email: e.target.value })} /></div>
-            <div><Label>Username</Label><Input value={adminEditForm.username} onChange={(e) => setAdminEditForm({ ...adminEditForm, username: e.target.value })} /></div>
-            <div className="sm:col-span-2"><Label>Mobile</Label><Input value={adminEditForm.phone} onChange={(e) => setAdminEditForm({ ...adminEditForm, phone: e.target.value })} /></div>
+          <div className="overflow-y-auto px-0 py-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="sm:col-span-2"><Label>Name</Label><Input value={adminEditForm.name} onChange={(e) => setAdminEditForm({ ...adminEditForm, name: e.target.value })} /></div>
+              <div><Label>Email</Label><Input value={adminEditForm.email} onChange={(e) => setAdminEditForm({ ...adminEditForm, email: e.target.value })} /></div>
+              <div><Label>Username</Label><Input value={adminEditForm.username} onChange={(e) => setAdminEditForm({ ...adminEditForm, username: e.target.value })} /></div>
+              <div className="sm:col-span-2"><Label>Mobile</Label><Input value={adminEditForm.phone} onChange={(e) => setAdminEditForm({ ...adminEditForm, phone: e.target.value })} /></div>
+            </div>
           </div>
           <DialogFooter><Button variant="outline" onClick={() => setAdminEditOpen(false)}>Cancel</Button><Button onClick={saveAdminEdit}>Save</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog open={panchayatDialogOpen} onOpenChange={setPanchayatDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[70vh] w-full sm:max-w-2xl overflow-hidden">
           <DialogHeader><DialogTitle>{panchayatEdit ? "Edit Panchayat" : "Add Panchayat"}</DialogTitle></DialogHeader>
-          <div className="grid gap-3">
-            <div><Label>Name</Label><Input value={panchayatForm.name} onChange={(e) => setPanchayatForm({ ...panchayatForm, name: e.target.value })} /></div>
-            <div><Label>Head</Label><Input value={panchayatForm.head} onChange={(e) => setPanchayatForm({ ...panchayatForm, head: e.target.value })} /></div>
+          <div className="overflow-y-auto px-0 py-4">
+            <div className="grid gap-3">
+              <div><Label>Name</Label><Input value={panchayatForm.name} onChange={(e) => setPanchayatForm({ ...panchayatForm, name: e.target.value })} /></div>
+              <div><Label>Head</Label><Input value={panchayatForm.head} onChange={(e) => setPanchayatForm({ ...panchayatForm, head: e.target.value })} /></div>
+            </div>
           </div>
           <DialogFooter><Button variant="outline" onClick={() => setPanchayatDialogOpen(false)}>Cancel</Button><Button onClick={savePanchayat}>Save</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog open={villageDialogOpen} onOpenChange={setVillageDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[70vh] w-full sm:max-w-2xl overflow-hidden">
           <DialogHeader><DialogTitle>{villageEdit ? "Edit Village" : "Add Village"}</DialogTitle></DialogHeader>
-          <div className="grid gap-3">
-            <div>
-              <Label>Panchayat</Label>
-              <Select value={villageForm.panchayatId} onValueChange={(value) => setVillageForm({ ...villageForm, panchayatId: value })}>
-                <SelectTrigger><SelectValue placeholder="Select Panchayat" /></SelectTrigger>
-                <SelectContent>
-                  {clusterPanchayats.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+          <div className="overflow-y-auto px-0 py-4">
+            <div className="grid gap-3">
+              <div>
+                <Label>Panchayat</Label>
+                <Select value={villageForm.panchayatId} onValueChange={(value) => setVillageForm({ ...villageForm, panchayatId: value })}>
+                  <SelectTrigger><SelectValue placeholder="Select Panchayat" /></SelectTrigger>
+                  <SelectContent>
+                    {clusterPanchayats.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div><Label>Name</Label><Input value={villageForm.name} onChange={(e) => setVillageForm({ ...villageForm, name: e.target.value })} /></div>
+              <div><Label>Population</Label><Input type="number" value={villageForm.population} onChange={(e) => setVillageForm({ ...villageForm, population: Number(e.target.value) })} /></div>
             </div>
-            <div><Label>Name</Label><Input value={villageForm.name} onChange={(e) => setVillageForm({ ...villageForm, name: e.target.value })} /></div>
-            <div><Label>Population</Label><Input type="number" value={villageForm.population} onChange={(e) => setVillageForm({ ...villageForm, population: Number(e.target.value) })} /></div>
           </div>
           <DialogFooter><Button variant="outline" onClick={() => setVillageDialogOpen(false)}>Cancel</Button><Button onClick={saveVillage}>Save</Button></DialogFooter>
         </DialogContent>
