@@ -2,9 +2,9 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { useState } from "react";
 import {
   LayoutDashboard, Calendar, Network, MapPin, Trees, School, GraduationCap,
-  UserCog, Users, HeartHandshake, BookOpen, ClipboardCheck, BookCheck,
+  UserCog, Users, HeartHandshake, BookOpen, ClipboardCheck,
   Wallet, Banknote, Undo2, ShieldCheck, BarChart3, Bell, Activity,
-  ScrollText, Settings, Menu, X, LogOut, Search, ChevronDown,
+  ScrollText, Settings, Menu, X, LogOut, Search, ChevronDown, ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,18 +18,32 @@ import { Badge } from "@/components/ui/badge";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
-const nav = [
+// Separate nav items for regular and expandable menus
+const regularNav = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/academic-years", label: "Academic Years", icon: Calendar },
   { to: "/clusters", label: "Clusters", icon: Network },
   { to: "/schools", label: "Schools", icon: School },
   { to: "/colleges", label: "Colleges", icon: GraduationCap },
+] as const;
+
+const expandableNav = [
+  {
+    label: "Attendance",
+    icon: ClipboardCheck,
+    children: [
+      { to: "/attendance/students", label: "Students Attendance" },
+      { to: "/attendance/volunteers", label: "Volunteers Attendance" },
+      { to: "/attendance/homework", label: "Homework" },
+    ],
+  },
+] as const;
+
+const moreNav = [
   { to: "/admins", label: "Admins", icon: UserCog },
   { to: "/students", label: "Students", icon: Users },
   { to: "/volunteers", label: "Volunteers", icon: HeartHandshake },
   { to: "/sessions", label: "Sessions", icon: BookOpen },
-  { to: "/attendance", label: "Attendance", icon: ClipboardCheck },
-  { to: "/homework", label: "Homework", icon: BookCheck },
   { to: "/finance", label: "Finance", icon: Wallet },
   { to: "/advance", label: "Advance", icon: Banknote },
   { to: "/refunds", label: "Refunds", icon: Undo2 },
@@ -43,6 +57,8 @@ const nav = [
 
 function SidebarBody({ onNav }: { onNav?: () => void }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({ Attendance: false });
+
   return (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
       <div className="flex h-16 shrink-0 items-center gap-3 border-b border-sidebar-border px-5">
@@ -55,7 +71,90 @@ function SidebarBody({ onNav }: { onNav?: () => void }) {
         </div>
       </div>
       <nav className="flex-1 overflow-y-auto px-2 py-3">
-        {nav.map((item) => {
+        {/* Regular nav items */}
+        {regularNav.map((item) => {
+          const active = pathname === item.to || (item.to !== "/" && pathname.startsWith(item.to));
+          const Icon = item.icon;
+          return (
+            <Link
+              key={item.to}
+              to={item.to}
+              onClick={onNav}
+              className={cn(
+                "group flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                active
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-card"
+                  : "text-sidebar-foreground/75 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+              )}
+            >
+              <Icon className="h-4 w-4 shrink-0" />
+              <span className="truncate">{item.label}</span>
+            </Link>
+          );
+        })}
+
+        {/* User Management header */}
+        <div className="mt-4 px-3 pb-2 text-xs font-semibold uppercase tracking-[0.12em] text-sidebar-foreground/50">
+          User Management
+        </div>
+
+        {/* Expandable Attendance menu */}
+        {expandableNav.map((item) => {
+          const isExpanded = expanded[item.label];
+          const Icon = item.icon;
+          const hasActiveChild = item.children.some((child) => pathname === child.to || pathname.startsWith(child.to));
+
+          return (
+            <div key={item.label}>
+              <button
+                onClick={() => {
+                  setExpanded({ ...expanded, [item.label]: !isExpanded });
+                }}
+                className={cn(
+                  "group flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                  hasActiveChild
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-card"
+                    : "text-sidebar-foreground/75 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+                )}
+              >
+                <Icon className="h-4 w-4 shrink-0" />
+                <span className="truncate flex-1 text-left">{item.label}</span>
+                <ChevronRight
+                  className={cn(
+                    "h-4 w-4 shrink-0 transition-transform",
+                    isExpanded && "rotate-90",
+                  )}
+                />
+              </button>
+
+              {isExpanded && (
+                <div className="ml-2 space-y-1 border-l border-sidebar-border/50 pl-2">
+                  {item.children.map((child) => {
+                    const childActive = pathname === child.to || pathname.startsWith(child.to);
+                    return (
+                      <Link
+                        key={child.to}
+                        to={child.to}
+                        onClick={onNav}
+                        className={cn(
+                          "group flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                          childActive
+                            ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-card"
+                            : "text-sidebar-foreground/75 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+                        )}
+                      >
+                        <span className="truncate">{child.label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {/* More nav items */}
+        {moreNav.map((item) => {
           const active = pathname === item.to || (item.to !== "/" && pathname.startsWith(item.to));
           const Icon = item.icon;
           return (
@@ -88,7 +187,38 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const notifications = useStore((s) => s.notifications);
   const unread = notifications.filter((n) => !n.read).length;
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const current = nav.find((n) => n.to === pathname) ?? nav.find((n) => n.to !== "/" && pathname.startsWith(n.to)) ?? nav[0];
+  
+  // Find current nav item label
+  let currentLabel = "Dashboard";
+  
+  // Check regular nav
+  for (const item of regularNav) {
+    if (item.to === pathname || (item.to !== "/" && pathname.startsWith(item.to))) {
+      currentLabel = item.label;
+      break;
+    }
+  }
+  
+  // Check expandable nav children
+  if (currentLabel === "Dashboard") {
+    for (const item of expandableNav) {
+      const childMatch = item.children.find((c) => c.to === pathname);
+      if (childMatch) {
+        currentLabel = childMatch.label;
+        break;
+      }
+    }
+  }
+  
+  // Check more nav
+  if (currentLabel === "Dashboard") {
+    for (const item of moreNav) {
+      if (item.to === pathname || (item.to !== "/" && pathname.startsWith(item.to))) {
+        currentLabel = item.label;
+        break;
+      }
+    }
+  }
 
   return (
     <div className="min-h-screen w-full bg-background">
@@ -111,9 +241,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <span>TQI</span>
               <span>/</span>
-              <span className="truncate font-medium text-foreground">{current.label}</span>
+              <span className="truncate font-medium text-foreground">{currentLabel}</span>
             </div>
-            <h1 className="hidden truncate text-base font-semibold sm:block">{current.label}</h1>
+            <h1 className="hidden truncate text-base font-semibold sm:block">{currentLabel}</h1>
           </div>
           <div className="relative hidden md:block">
             <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />

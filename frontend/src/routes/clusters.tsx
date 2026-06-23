@@ -23,17 +23,15 @@ export const Route = createFileRoute("/clusters")({
 
 type PanchayatSetup = { name: string; villagesCount: number; villageNames: string[]; villageSchools: { [key: number]: string[] } };
 
-type ClusterWizardForm = { name: string; district: string; status: string };
-
-type AdminWizardForm = { name: string; mobile: string; email: string; username: string; password: string; confirm: string };
+type ClusterWizardForm = { name: string };
 
 type PanchayatForm = { name: string; head: string };
 
 type VillageForm = { name: string; panchayatId: string; population: number };
 
-type ClusterEditForm = { name: string; district: string; status: string };
+type ClusterEditForm = { name: string };
 
-type AdminEditForm = { name: string; email: string; username: string; phone: string };
+type AdminEditForm = { name: string; email: string; username: string; phone: string; college?: string; clusterId?: string };
 
 function Clusters() {
   const s = useStore();
@@ -42,8 +40,7 @@ function Clusters() {
   const [view, setView] = useState<Cluster | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
-  const [clusterForm, setClusterForm] = useState<ClusterWizardForm>({ name: "", district: "", status: "Active" });
-  const [adminForm, setAdminForm] = useState<AdminWizardForm>({ name: "", mobile: "", email: "", username: "", password: "", confirm: "" });
+  const [clusterForm, setClusterForm] = useState<ClusterWizardForm>({ name: "" });
   const [panchayatCount, setPanchayatCount] = useState(0);
   const [panchayatsSetup, setPanchayatsSetup] = useState<PanchayatSetup[]>([]);
 
@@ -66,8 +63,7 @@ function Clusters() {
 
   const openCreate = () => {
     setStep(1);
-    setClusterForm({ name: "", district: "", status: "Active" });
-    setAdminForm({ name: "", mobile: "", email: "", username: "", password: "", confirm: "" });
+    setClusterForm({ name: "" });
     setPanchayatCount(0);
     setPanchayatsSetup([]);
     setOpen(true);
@@ -278,36 +274,28 @@ function Clusters() {
 
   const handleWizardNext = () => {
     if (step === 1) {
-      if (!clusterForm.name || !clusterForm.district || !clusterForm.status) return toast.error("Cluster information is required");
+      if (!clusterForm.name.trim()) return toast.error("Cluster name is required");
       setStep(2);
       return;
     }
     if (step === 2) {
-      if (!adminForm.name || !adminForm.mobile || !adminForm.email || !adminForm.username || !adminForm.password || !adminForm.confirm) return toast.error("Admin information is required");
-      if (adminForm.password !== adminForm.confirm) return toast.error("Passwords do not match");
+      if (panchayatsSetup.length === 0) return toast.error("Add at least one Panchayat");
+      if (panchayatsSetup.some((p) => !p.name.trim())) return toast.error("All Panchayat names are required");
       setStep(3);
       return;
     }
     if (step === 3) {
-      if (panchayatsSetup.length === 0) return toast.error("Add at least one Panchayat");
-      if (panchayatsSetup.some((p) => !p.name.trim())) return toast.error("All Panchayat names are required");
-      setStep(4);
-      return;
-    }
-    if (step === 4) {
       if (panchayatsSetup.some((p) => p.villagesCount < 1)) return toast.error("Each Panchayat needs at least one Village");
       if (panchayatsSetup.some((p) => p.villageNames.some((vn) => !vn.trim()))) return toast.error("All Village names are required");
       if (panchayatsSetup.some((p) => Object.keys(p.villageSchools).some((v) => (p.villageSchools[Number(v)]?.length ?? 0) === 0))) return toast.error("Each Village needs at least one School");
       if (panchayatsSetup.some((p) => Object.keys(p.villageSchools).some((v) => p.villageSchools[Number(v)].some((sn) => !sn.trim())))) return toast.error("All School names are required");
-      setStep(5);
+      setStep(4);
       return;
     }
   };
 
   const createCluster = () => {
-    if (!clusterForm.name || !clusterForm.district || !clusterForm.status) return toast.error("Cluster information is required");
-    if (!adminForm.name || !adminForm.mobile || !adminForm.email || !adminForm.username || !adminForm.password || !adminForm.confirm) return toast.error("Admin information is required");
-    if (adminForm.password !== adminForm.confirm) return toast.error("Passwords do not match");
+    if (!clusterForm.name.trim()) return toast.error("Cluster name is required");
     if (panchayatsSetup.length === 0) return toast.error("Add at least one Panchayat");
     if (panchayatsSetup.some((p) => !p.name.trim())) return toast.error("All Panchayat names are required");
     if (panchayatsSetup.some((p) => p.villagesCount < 1)) return toast.error("Each Panchayat needs at least one Village count");
@@ -322,25 +310,12 @@ function Clusters() {
       name: clusterForm.name,
       code: `CL${(s.clusters.length + 1).toString().padStart(3, "0")}`,
       state: "Karnataka",
-      district: clusterForm.district,
-      status: clusterForm.status,
-      lead: adminForm.name,
+      district: "",
+      status: "Active",
+      lead: "",
     } as Cluster;
 
     s.upsert("clusters", cluster);
-    s.upsert("admins", {
-      id: newId(),
-      name: adminForm.name,
-      email: adminForm.email,
-      username: adminForm.username,
-      password: adminForm.password,
-      phone: adminForm.mobile,
-      role: "Cluster Admin",
-      active: true,
-      lastLogin: new Date().toISOString(),
-      createdAt: new Date().toISOString(),
-      clusterId,
-    });
 
     panchayatsSetup.forEach((p) => {
       const pId = newId();
@@ -358,8 +333,7 @@ function Clusters() {
     toast.success("Cluster created");
     setOpen(false);
     setStep(1);
-    setClusterForm({ name: "", district: "", status: "Active" });
-    setAdminForm({ name: "", mobile: "", email: "", username: "", password: "", confirm: "" });
+    setClusterForm({ name: "" });
     setPanchayatCount(0);
     setPanchayatsSetup([]);
     setView(cluster);
@@ -389,12 +363,13 @@ function Clusters() {
       <DataTable
         exportName="clusters"
         rows={s.clusters}
-        searchKeys={["name", "code", "lead"]}
+        searchKeys={["name", "code"]}
         columns={[
           { key: "code", header: "Code", render: (r) => <Badge variant="outline">{r.code}</Badge> },
           { key: "name", header: "Cluster", render: (r) => <span className="font-medium">{r.name}</span> },
-          { key: "district", header: "District", render: (r) => r.district || "—" },
-          { key: "lead", header: "Lead" },
+          { key: "panchayats", header: "Panchayats", render: (r) => countFor(r.id).p },
+          { key: "villages", header: "Villages", render: (r) => countFor(r.id).v },
+          { key: "schools", header: "Schools", render: (r) => countFor(r.id).sc },
           { key: "_stats", header: "Reach", render: (r) => {
             const c = countFor(r.id);
             return <span className="text-xs text-muted-foreground">{c.p}P · {c.v}V · {c.sc}S · {c.st}St</span>;
@@ -414,42 +389,19 @@ function Clusters() {
           <DialogHeader>
             <DialogTitle>
               {step === 1 && "Cluster Information"}
-              {step === 2 && "Cluster Admin Creation"}
-              {step === 3 && "Panchayats"}
-              {step === 4 && "Villages"}
-              {step === 5 && "Review"}
+              {step === 2 && "Panchayats"}
+              {step === 3 && "Villages"}
+              {step === 4 && "Review"}
             </DialogTitle>
           </DialogHeader>
 
           {step === 1 && (
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="sm:col-span-2"><Label>Cluster Name</Label><Input value={clusterForm.name} onChange={(e) => setClusterForm({ ...clusterForm, name: e.target.value })} /></div>
-              <div><Label>District Name</Label><Input value={clusterForm.district} onChange={(e) => setClusterForm({ ...clusterForm, district: e.target.value })} /></div>
-              <div>
-                <Label>Status</Label>
-                <Select value={clusterForm.status} onValueChange={(value) => setClusterForm({ ...clusterForm, status: value })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Active">Active</SelectItem>
-                    <SelectItem value="Inactive">Inactive</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
             </div>
           )}
 
           {step === 2 && (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="sm:col-span-2"><Label>Admin Name</Label><Input value={adminForm.name} onChange={(e) => setAdminForm({ ...adminForm, name: e.target.value })} /></div>
-              <div><Label>Mobile Number</Label><Input value={adminForm.mobile} onChange={(e) => setAdminForm({ ...adminForm, mobile: e.target.value })} /></div>
-              <div><Label>Email ID</Label><Input value={adminForm.email} onChange={(e) => setAdminForm({ ...adminForm, email: e.target.value })} /></div>
-              <div><Label>Username</Label><Input value={adminForm.username} onChange={(e) => setAdminForm({ ...adminForm, username: e.target.value })} /></div>
-              <div><Label>Password</Label><Input type="password" value={adminForm.password} onChange={(e) => setAdminForm({ ...adminForm, password: e.target.value })} /></div>
-              <div><Label>Confirm Password</Label><Input type="password" value={adminForm.confirm} onChange={(e) => setAdminForm({ ...adminForm, confirm: e.target.value })} /></div>
-            </div>
-          )}
-
-          {step === 3 && (
             <div className="space-y-4">
               <div>
                 <Label>How many Panchayats are there in this Cluster?</Label>
@@ -470,7 +422,7 @@ function Clusters() {
             </div>
           )}
 
-          {step === 4 && (
+          {step === 3 && (
             <div className="space-y-4">
               {panchayatsSetup.map((p, pIndex) => (
                 <div key={pIndex} className="rounded-lg border border-border p-4">
@@ -490,12 +442,10 @@ function Clusters() {
                         <div key={villageIndex} className="rounded-lg border border-border/50 bg-accent/20 p-3">
                           <Label>{`Village ${villageIndex + 1}`}</Label>
                           <Input value={name} onChange={(e) => updateVillageName(pIndex, villageIndex, e.target.value)} className="mb-3" />
-                          
                           <div className="mb-2">
                             <Label className="text-xs">Number of Schools in {name || `Village ${villageIndex + 1}`}</Label>
                             <Input type="number" min={0} value={(p.villageSchools[villageIndex]?.length || 0)} onChange={(e) => updateVillageSchoolCount(pIndex, villageIndex, Number(e.target.value) || 0)} />
                           </div>
-                          
                           {(p.villageSchools[villageIndex]?.length ?? 0) > 0 && (
                             <div className="space-y-2 border-t border-border/50 pt-3">
                               {p.villageSchools[villageIndex].map((school, schoolIndex) => (
@@ -515,21 +465,9 @@ function Clusters() {
             </div>
           )}
 
-          {step === 5 && (
-            <div className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-lg border border-border bg-muted p-4">
-                  <div className="text-xs uppercase text-muted-foreground">Cluster</div>
-                  <div className="mt-2 text-sm font-semibold">{clusterForm.name}</div>
-                  <div className="text-sm text-muted-foreground">{clusterForm.district}</div>
-                  <div className="text-sm text-muted-foreground">{clusterForm.status}</div>
-                </div>
-                <div className="rounded-lg border border-border bg-muted p-4">
-                  <div className="text-xs uppercase text-muted-foreground">Admin</div>
-                  <div className="mt-2 text-sm font-semibold">{adminForm.name}</div>
-                  <div className="text-sm text-muted-foreground">Username: {adminForm.username}</div>
-                  <div className="text-sm text-muted-foreground">{adminForm.email}</div>
-                </div>
+              <div className="rounded-lg border border-border bg-muted p-4">
+                <div className="text-xs uppercase text-muted-foreground">Cluster</div>
+                <div className="mt-2 text-sm font-semibold">{clusterForm.name}</div>
               </div>
               <div className="rounded-lg border border-border bg-muted p-4">
                 <div className="text-sm font-semibold">Review hierarchy</div>
@@ -568,8 +506,8 @@ function Clusters() {
               </Button>
             </div>
             <div className="flex gap-2">
-              {step < 5 ? (
-                <Button onClick={handleWizardNext}>{step === 4 ? "Next" : "Next"}</Button>
+              {step < 4 ? (
+                <Button onClick={handleWizardNext}>Next</Button>
               ) : (
                 <Button onClick={createCluster}>Create Cluster</Button>
               )}

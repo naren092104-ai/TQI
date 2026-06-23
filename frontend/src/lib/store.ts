@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { fetchResource, upsertResource, patchResource, deleteResource } from "./api/client";
+import { getToken, validateToken } from "@/utils/auth";
 
 export type ID = string;
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -11,7 +12,7 @@ export interface Panchayat { id: ID; name: string; clusterId: ID; head: string; 
 export interface Village { id: ID; name: string; panchayatId: ID; population: number; createdAt: string; }
 export interface School { id: ID; name: string; villageId: ID; type: "Primary" | "Middle" | "High" | "Higher Secondary"; principal: string; createdAt: string; }
 export interface College { id: ID; name: string; city: string; affiliated: string; createdAt: string; }
-export interface Admin { id: ID; name: string; email: string; username: string; password?: string; phone?: string; role: "Super Admin" | "Admin" | "Cluster Admin" | "Finance"; active: boolean; lastLogin: string; createdAt: string; clusterId?: ID; }
+export interface Admin { id: ID; name: string; email: string; username: string; password?: string; phone?: string; college?: string; role: "Super Admin" | "Admin" | "Cluster Admin" | "Finance"; active: boolean; lastLogin: string; createdAt: string; clusterId?: ID; }
 export interface Student { id: ID; name: string; rollNo: string; schoolId: ID; villageId?: ID; panchayatId?: ID; clusterId?: ID; grade: string; gender: "M" | "F"; dob?: string; parentName?: string; parentPhone?: string; guardian: string; phone: string; address?: string; status?: string; createdAt?: string; updatedAt?: string; }
 export interface Volunteer { id: ID; name: string; email: string; phone: string; clusterId: ID; skill: string; sessions: number; }
 export interface Session { id: ID; day: number; title: string; date: string; clusterId: ID; status: "Planned" | "Ongoing" | "Completed" | "Cancelled"; trainer: string; }
@@ -77,6 +78,9 @@ export const useStore = create<Store>()((set, get) => ({
   initialized: false,
   init: async () => {
     if (get().initialized) return;
+    const token = getToken();
+    if (!validateToken(token)) return;
+
     const keys = Object.keys(seed()) as Array<keyof DB>;
     const loaded = { ...seed() } as DB;
     let loadedAny = false;

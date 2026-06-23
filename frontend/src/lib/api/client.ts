@@ -1,8 +1,20 @@
+import { toast } from "sonner";
+import { clearSession, dispatchSessionExpired, getToken, validateToken } from "@/utils/auth";
+
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:4000";
 
-function getAuthToken() {
-  if (typeof window === "undefined") return null;
-  return window.localStorage.getItem("tqi_token");
+function logoutWithSessionExpired(): never {
+  clearSession();
+  dispatchSessionExpired();
+  toast.error("Session expired. Please login again");
+  if (typeof window !== "undefined") {
+    window.location.href = "/login";
+  }
+  throw new Error("Session expired. Please login again");
+}
+
+function shouldValidateToken(path: string): boolean {
+  return path !== "/api/auth/login";
 }
 
 export async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -11,12 +23,14 @@ export async function request<T>(path: string, options?: RequestInit): Promise<T
     ...(options?.headers as Record<string, string> | undefined),
   };
 
-  const token = getAuthToken();
-  if (token) {
+  const token = getToken();
+  if (token && shouldValidateToken(path)) {
+    if (!validateToken(token)) {
+      return logoutWithSessionExpired();
+    }
     headers.Authorization = `Bearer ${token}`;
-    console.log(`[API] ${options?.method || "GET"} ${path} - Token: ${token.slice(0, 20)}...`);
-  } else {
-    console.warn(`[API] ${options?.method || "GET"} ${path} - No token found!`);
+  } else if (token) {
+    headers.Authorization = `Bearer ${token}`;
   }
 
   const response = await fetch(`${API_BASE}${path}`, {
@@ -34,6 +48,11 @@ export async function request<T>(path: string, options?: RequestInit): Promise<T
     } catch {
       errorMessage = body || errorMessage;
     }
+
+    if (response.status === 401 && shouldValidateToken(path)) {
+      return logoutWithSessionExpired();
+    }
+
     throw new Error(errorMessage || `Request failed with status ${response.status}`);
   }
 

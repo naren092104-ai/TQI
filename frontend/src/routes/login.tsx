@@ -10,7 +10,8 @@ import { Sparkles, Users, School, Wallet, Shield } from "lucide-react";
 import { toast } from "sonner";
 import { useStore } from "@/lib/store";
 import { useAuth } from "@/lib/auth";
-import { loginUser, setAuthToken, setAuthUser } from "@/lib/api/auth";
+import { loginUser } from "@/lib/api/auth";
+import { saveToken, saveUser } from "@/utils/auth";
 
 export const Route = createFileRoute("/login")({
   head: () => ({ meta: [{ title: "Sign in — TQI Admin" }] }),
@@ -29,13 +30,10 @@ function LoginPage() {
     e.preventDefault();
     try {
       const response = await loginUser({ email, password });
-      setAuthToken(response.token);
-      setAuthUser(response.user);
+      saveToken(response.token);
+      saveUser(response.user);
       authStore.login(email, response.user);
-      console.log("Token saved:", response.token?.slice(0, 20) + "...");
       toast.success("Welcome to TQI Command Center");
-      // Small delay to ensure localStorage is persisted
-      await new Promise(resolve => setTimeout(resolve, 100));
       nav({ to: "/" });
     } catch (error: unknown) {
       toast.error(error instanceof Error ? error.message : "Login failed");

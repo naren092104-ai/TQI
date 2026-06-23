@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { clearSession, getToken, validateToken } from "@/utils/auth";
 
 interface AuthState {
   user: { id: string; name: string; email: string; role: string; clusterId?: string } | null;
@@ -15,23 +16,31 @@ export const useAuth = create<AuthState>((set) => ({
   login: (email, userData) => set({ user: userData, firstLogin: true }),
   changedPassword: () => set({ firstLogin: false }),
   logout: () => {
-    if (typeof window !== "undefined") {
-      window.localStorage.removeItem("tqi_token");
-      window.localStorage.removeItem("tqi_user");
-    }
+    clearSession();
     set({ user: null });
   },
   loadFromToken: () => {
     if (typeof window === "undefined") return;
-    const token = window.localStorage.getItem("tqi_token");
+
+    const token = getToken();
+    if (!validateToken(token)) {
+      clearSession();
+      set({ user: null });
+      return;
+    }
+
     const userData = window.localStorage.getItem("tqi_user");
-    if (token && userData) {
-      try {
-        const user = JSON.parse(userData);
-        set({ user });
-      } catch {
-        // Invalid JSON, ignore
-      }
+    if (!userData) {
+      set({ user: null });
+      return;
+    }
+
+    try {
+      const user = JSON.parse(userData);
+      set({ user });
+    } catch {
+      clearSession();
+      set({ user: null });
     }
   },
 }));

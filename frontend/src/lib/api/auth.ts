@@ -1,4 +1,5 @@
 import { request } from "./client";
+import { clearSession, getToken, saveToken, saveUser } from "@/utils/auth";
 
 export interface LoginPayload {
   email: string;
@@ -25,28 +26,23 @@ export async function loginUser(data: LoginPayload): Promise<LoginResult> {
 }
 
 export function getAuthToken() {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("tqi_token");
+  return getToken();
 }
 
 export function setAuthToken(token: string) {
-  if (typeof window === "undefined") return;
-  localStorage.setItem("tqi_token", token);
+  saveToken(token);
 }
 
 export function setAuthUser(user: LoginResult["user"]) {
-  if (typeof window === "undefined") return;
-  localStorage.setItem("tqi_user", JSON.stringify(user));
+  saveUser(user);
 }
 
 export function getAuthUser() {
   if (typeof window === "undefined") return null;
-  const user = localStorage.getItem("tqi_user");
+  const user = window.localStorage.getItem("tqi_user");
   return user ? JSON.parse(user) : null;
 }
 
 export function logoutUser() {
-  if (typeof window === "undefined") return;
-  localStorage.removeItem("tqi_token");
-  localStorage.removeItem("tqi_user");
+  clearSession();
 }

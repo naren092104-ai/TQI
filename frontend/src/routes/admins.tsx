@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { AppShell, PageHeader } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,13 +25,29 @@ function Page() {
   const s = useStore();
   const [open, setOpen] = useState(false);
   const [edit, setEdit] = useState<Admin | null>(null);
-  const [form, setForm] = useState({ name: "", email: "", role: "Admin" as Admin["role"], active: true, password: "", confirm: "" });
+  const [clusterSearch, setClusterSearch] = useState("");
+  const [form, setForm] = useState({ name: "", email: "", role: "Admin" as Admin["role"], active: true, password: "", confirm: "", clusterId: "" });
   const [view, setView] = useState<Admin | null>(null);
 
-  const openCreate = () => { setEdit(null); setForm({ name: "", email: "", role: "Super Admin", active: true, password: "", confirm: "" }); setOpen(true); };
-  const openEdit = (a: Admin) => { setEdit(a); setForm({ name: a.name, email: a.email, role: a.role, active: a.active, password: "", confirm: "" }); setOpen(true); };
+  const clusterOptions = useMemo(
+    () => s.clusters.filter((cluster) => cluster.name.toLowerCase().includes(clusterSearch.toLowerCase())),
+    [s.clusters, clusterSearch],
+  );
+
+  const openCreate = () => {
+    setEdit(null);
+    setClusterSearch("");
+    setForm({ name: "", email: "", role: "Super Admin", active: true, password: "", confirm: "", clusterId: "" });
+    setOpen(true);
+  };
+  const openEdit = (a: Admin) => {
+    setEdit(a);
+    setClusterSearch("");
+    setForm({ name: a.name, email: a.email, role: a.role, active: a.active, password: "", confirm: "", clusterId: a.clusterId ?? "" });
+    setOpen(true);
+  };
   const save = async () => {
-    if (!form.name || !form.email) return toast.error("Required");
+    if (!form.name.trim() || !form.email.trim()) return toast.error("Name and email are required");
     if (!edit && !form.password) return toast.error("Password is required for new admins");
     if (form.password && form.password !== form.confirm) return toast.error("Passwords do not match");
     const payload: any = {
@@ -44,7 +60,7 @@ function Page() {
       role: form.role,
       active: form.active,
       phone: edit?.phone ?? null,
-      clusterId: edit?.clusterId ?? null,
+      clusterId: form.role === "Cluster Admin" ? form.clusterId || null : null,
     };
     if (form.password) payload.password = form.password;
     try {
@@ -61,18 +77,19 @@ function Page() {
       <PageHeader title="Admins" description="Manage administrative users and roles." actions={<Button onClick={openCreate}><Plus className="h-4 w-4" /> Create Admin</Button>} />
       <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
         <KpiCard label="Total Admins" value={s.admins.length} icon={UserCog} tone="primary" />
-        <KpiCard label="Active" value={s.admins.filter(a=>a.active).length} icon={UserCog} tone="success" />
-        <KpiCard label="Super Admins" value={s.admins.filter(a=>a.role==="Super Admin").length} icon={UserCog} tone="secondary" />
-        <KpiCard label="Finance" value={s.admins.filter(a=>a.role==="Finance").length} icon={UserCog} tone="info" />
+        <KpiCard label="Active" value={s.admins.filter((a) => a.active).length} icon={UserCog} tone="success" />
+        <KpiCard label="Super Admins" value={s.admins.filter((a) => a.role === "Super Admin").length} icon={UserCog} tone="secondary" />
+        <KpiCard label="Cluster Admins" value={s.admins.filter((a) => a.role === "Cluster Admin").length} icon={UserCog} tone="info" />
       </div>
       <DataTable
         exportName="admins"
         rows={s.admins}
-        searchKeys={["name","email","role"]}
+        searchKeys={["name", "email", "role", "clusterId"]}
         columns={[
           { key: "name", header: "Name", render: (r) => <span className="font-medium">{r.name}</span> },
           { key: "email", header: "Email" },
           { key: "role", header: "Role", render: (r) => <Badge variant="outline">{r.role}</Badge> },
+          { key: "clusterId", header: "Cluster", render: (r) => s.clusters.find((c) => c.id === r.clusterId)?.name || "—" },
           { key: "active", header: "Status", render: (r) => r.active ? <Badge className="bg-success text-success-foreground">Active</Badge> : <Badge variant="secondary">Inactive</Badge> },
           { key: "lastLogin", header: "Last login", render: (r) => r.lastLogin?.slice(0,10) },
           { key: "_act", header: "", className: "text-right", render: (r) => (
@@ -89,20 +106,48 @@ function Page() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader><DialogTitle>{edit ? "Edit" : "Create"} Admin</DialogTitle></DialogHeader>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div><Label>Name</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
-            <div><Label>Email</Label><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
-            <p className="text-xs text-muted-foreground">Login uses email and password; username is not required.</p>
-            <div><Label>Password</Label><Input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></div>
-            <div><Label>Confirm password</Label><Input type="password" value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })} /></div>
-            <div>
-              <Label>Role</Label>
-              <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v as Admin["role"] })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{["Super Admin","Admin","Cluster Admin","Finance"].map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
-              </Select>
+          <div className="space-y-4">
+            <div className="rounded-lg border border-border p-4">
+              <div className="text-xs uppercase text-muted-foreground">Contact / SPOC</div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div><Label>Name</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+                <div><Label>Email</Label><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
+                <div>
+                  <Label>Role</Label>
+                  <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v as Admin["role"], clusterId: v === "Cluster Admin" ? form.clusterId : "" })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>{["Super Admin", "Admin", "Cluster Admin", "Finance"].map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-2"><Switch checked={form.active} onCheckedChange={(v) => setForm({ ...form, active: v })} /> Active</div>
+              </div>
+              {form.role === "Cluster Admin" && (
+                <div className="mt-4 space-y-2">
+                  <Label>Assign Cluster</Label>
+                  <Input placeholder="Search clusters" value={clusterSearch} onChange={(e) => setClusterSearch(e.target.value)} />
+                  <Select value={form.clusterId} onValueChange={(value) => setForm({ ...form, clusterId: value })}>
+                    <SelectTrigger><SelectValue placeholder="Select cluster" /></SelectTrigger>
+                    <SelectContent>
+                      {clusterOptions.length === 0 ? (
+                        <SelectItem value="">No matching clusters</SelectItem>
+                      ) : (
+                        clusterOptions.map((cluster) => (
+                          <SelectItem key={cluster.id} value={cluster.id}>{cluster.name}</SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
-            <label className="flex items-center gap-2"><Switch checked={form.active} onCheckedChange={(v) => setForm({ ...form, active: v })} /> Active</label>
+            <div className="rounded-lg border border-border p-4">
+              <div className="text-xs uppercase text-muted-foreground">Login details</div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div><Label>Password</Label><Input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></div>
+                <div><Label>Confirm password</Label><Input type="password" value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })} /></div>
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">Login uses email and password; username will be derived from the email if unset.</p>
+            </div>
           </div>
           <DialogFooter><Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button onClick={save}>Save</Button></DialogFooter>
         </DialogContent>

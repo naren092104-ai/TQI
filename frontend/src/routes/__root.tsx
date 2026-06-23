@@ -7,11 +7,12 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { toast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
 import { useStore } from "@/lib/store";
 import { useAuth } from "@/lib/auth";
-import { getAuthToken } from "@/lib/api/auth";
+import { clearSession, getToken, validateToken } from "@/utils/auth";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
@@ -40,7 +41,6 @@ function NotFoundComponent() {
 
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error(error);
-  const router = useRouter();
   useEffect(() => {
     reportLovableError(error, { boundary: "tanstack_root_error_component" });
   }, [error]);
@@ -57,7 +57,6 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           <button
             onClick={() => {
-              router.invalidate();
               reset();
             }}
             className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
@@ -121,49 +120,67 @@ function RootComponent() {
   const init = useStore((s) => s.init);
   const authLoad = useAuth((s) => s.loadFromToken);
   const router = useRouter();
-  const token = getAuthToken();
   const [authChecked, setAuthChecked] = useState(false);
-
-  console.log("Root component - token check:", token ? "Token found" : "No token");
+  const initializedRef = useRef(false);
 
   useEffect(() => {
-    console.log("Auth effect running - token:", token ? "present" : "missing", "location:", router.state.location.pathname);
+    if (initializedRef.current) return;
+    initializedRef.current = true;
 
-    // Load auth state from localStorage
+    const token = getToken();
     authLoad();
 
-    if (token && router.state.location.pathname === "/login") {
-      console.log("Redirecting from login to dashboard");
-      router.navigate({ to: "/" });
+    if (!token || !validateToken(token)) {
+      clearSession();
+      useAuth.getState().logout();
+      useStore.getState().reset();
+      if (token) {
+        toast.error("Session expired. Please login again");
+      }
+      if (router.state.location.pathname !== "/login") {
+        router.navigate({ to: "/login" });
+      }
+      setAuthChecked(true);
       return;
     }
 
-    if (!token && router.state.location.pathname !== "/login") {
-      console.log("Redirecting to login - no token");
-      router.navigate({ to: "/login" });
+    if (router.state.location.pathname === "/login") {
+      void init().finally(() => {
+        setAuthChecked(true);
+        router.navigate({ to: "/" });
+      });
       return;
     }
 
-    if (token) {
-      console.log("Token found, initializing store");
-      void init();
-    }
-
-    setAuthChecked(true);
-  }, [init, router, token, authLoad]);
+    void init().finally(() => {
+      setAuthChecked(true);
+    });
+  }, [authLoad, init, router]);
 
   useEffect(() => {
-    if (!token) return;
-    const retry = window.setInterval(() => {
-      if (!useStore.getState().initialized) {
-        void useStore.getState().init();
+    const handleSessionExpired = () => {
+      clearSession();
+      useAuth.getState().logout();
+      useStore.getState().reset();
+      toast.error("Session expired. Please login again");
+      if (router.state.location.pathname !== "/login") {
+        router.navigate({ to: "/login" });
       }
-    }, 5000);
-    return () => window.clearInterval(retry);
-  }, [token]);
+    };
+
+    window.addEventListener("tqi:session-expired", handleSessionExpired);
+    return () => window.removeEventListener("tqi:session-expired", handleSessionExpired);
+  }, [router]);
 
   if (!authChecked) {
-    return null; // Don't render anything until auth is checked
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4">
+        <div className="rounded-2xl border border-input/50 bg-surface p-8 text-center shadow-lg">
+          <p className="text-base font-medium text-foreground">Checking authentication...</p>
+          <p className="mt-2 text-sm text-muted-foreground">Please wait while we verify your session.</p>
+        </div>
+      </div>
+    );
   }
 
   return (
