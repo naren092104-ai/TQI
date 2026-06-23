@@ -13,8 +13,7 @@ import { Progress } from "@/components/ui/progress";
 import { DataTable } from "@/components/layout/data-table";
 import { ConfirmDelete } from "@/components/layout/confirm-delete";
 import { KpiCard } from "@/components/layout/kpi-card";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Plus, Pencil, Eye, HeartHandshake, Upload, Download, AlertCircle } from "lucide-react";
+import { Plus, Pencil, Eye, HeartHandshake, Upload, Download } from "lucide-react";
 import { useStore, newId, type Volunteer } from "@/lib/store";
 import { useAuth, isClusterAdmin } from "@/lib/auth";
 import { toast } from "sonner";
@@ -311,10 +310,6 @@ function Page() {
                   <div className="rounded-lg border border-border bg-muted p-3">
                     <div className="text-xs text-muted-foreground mb-1">Year</div>
                     <div className="font-medium">{yearLabel(view.year)}</div>
-                  </div>
-                  <div className="rounded-lg border border-border bg-muted p-3">
-                    <div className="text-xs text-muted-foreground mb-1">Skill</div>
-                    <div className="font-medium">{view.skill}</div>
                   </div>
                   <div className="rounded-lg border border-border bg-muted p-3">
                     <div className="text-xs text-muted-foreground mb-1">Mobile</div>

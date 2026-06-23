@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { createFileRoute } from "@tanstack/react-router";
+import { SmartShell as AppShell } from "@/components/layout/smart-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,21 +9,12 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useStore } from "@/lib/store";
+import { useAuth, isClusterAdmin } from "@/lib/auth";
 import { toast } from "sonner";
 import {
-  Users,
-  CheckCircle,
-  XCircle,
-  Clock,
-  Download,
-  RotateCcw,
-  Save,
-  Send,
-  Search,
-  Eye,
-  TrendingUp,
-  ChevronLeft,
-  ChevronRight,
+  Users, CheckCircle, XCircle, Clock, Download,
+  RotateCcw, Save, Send, Search, Eye, TrendingUp,
+  ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { useRef } from "react";
 
@@ -40,10 +32,29 @@ function yearLabel(val?: string) {
 
 function VolunteersPage() {
   const s = useStore();
+  const { user } = useAuth();
+  const myClusterId = user?.clusterId ?? "";
   const sessionStripRef = useRef<HTMLDivElement | null>(null);
   const [selectedDay, setSelectedDay] = useState(1);
   const [selectedVolunteer, setSelectedVolunteer] = useState<any>(null);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
+
+  // Real sessions from store
+  const sessionDays = useMemo(() => {
+    const filtered = isClusterAdmin(user?.role)
+      ? s.sessions.filter(sess => sess.clusterId === myClusterId)
+      : s.sessions;
+    return Array.from({ length: 8 }, (_, i) => {
+      const day = i + 1;
+      const existing = filtered.find(sess => sess.day === day);
+      return {
+        day,
+        date: existing?.date ?? "—",
+        status: existing ? existing.status.toLowerCase() : "upcoming",
+        title: existing?.title ?? `Day ${day}`,
+      };
+    });
+  }, [s.sessions, myClusterId, user?.role]);
 
   // Filters
   const [collegeFilter, setCollegeFilter] = useState("");
@@ -56,13 +67,6 @@ function VolunteersPage() {
   const [attendance, setAttendance] = useState<Record<string, "present" | "absent" | "pending">>(
     Object.fromEntries(s.volunteers.map((v) => [v.id, "pending"]))
   );
-
-  // Mock session days
-  const sessionDays = Array.from({ length: 8 }, (_, i) => ({
-    day: i + 1,
-    date: new Date(Date.now() - (7 - i) * 24 * 60 * 60 * 1000).toLocaleDateString("en-IN"),
-    status: i < 4 ? "completed" : i === 4 ? "pending" : "upcoming",
-  }));
 
   // Filtered volunteers
   const filteredVolunteers = useMemo(() => {
@@ -102,34 +106,27 @@ function VolunteersPage() {
   };
 
   return (
+    <AppShell>
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
       {/* Header */}
-      <div className="sticky top-0 z-50 border-b border-white/50 bg-white/80 backdrop-blur-xl">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
+      <div className="border-b border-white/50 bg-white/80 backdrop-blur-xl">
+        <div className="px-4 sm:px-6 py-4">
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
-              <h1 className="text-2xl font-bold text-slate-900">Volunteers Attendance</h1>
+              <h1 className="text-xl font-bold text-slate-900">Volunteers Attendance</h1>
               <p className="text-sm text-slate-600">Track and manage volunteer attendance records</p>
             </div>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={() => handleMarkAll("absent")}>
-                <RotateCcw className="h-4 w-4 mr-2" /> Mark All Absent
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => handleMarkAll("present")}>
-                <Users className="h-4 w-4 mr-2" /> Mark All Present
-              </Button>
-              <Button size="sm" onClick={handleSave}>
-                <Save className="h-4 w-4 mr-2" /> Save
-              </Button>
-              <Button size="sm" onClick={handleSubmit}>
-                <Send className="h-4 w-4 mr-2" /> Submit
-              </Button>
+            <div className="flex gap-2 flex-wrap">
+              <Button variant="outline" size="sm" onClick={() => handleMarkAll("absent")}><RotateCcw className="h-4 w-4 mr-2" /> Mark All Absent</Button>
+              <Button variant="outline" size="sm" onClick={() => handleMarkAll("present")}><Users className="h-4 w-4 mr-2" /> Mark All Present</Button>
+              <Button size="sm" onClick={handleSave}><Save className="h-4 w-4 mr-2" /> Save</Button>
+              <Button size="sm" onClick={handleSubmit}><Send className="h-4 w-4 mr-2" /> Submit</Button>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6">
+      <div className="px-4 sm:px-6 py-6">
         {/* Session Cards */}
         <div className="mb-6 flex items-center gap-2">
           <button
@@ -494,6 +491,7 @@ function VolunteersPage() {
         </div>
       </div>
     </div>
+    </AppShell>
   );
 }
 
