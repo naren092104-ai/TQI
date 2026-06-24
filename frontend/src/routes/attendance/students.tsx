@@ -74,8 +74,16 @@ function StudentsAttendancePage() {
   const windowOpen = isSessionWindowOpen(selectedSession as any);
   // determine if cluster already submitted for this session
   const hasSubmitted = !!s.attendance.find(a => (a as any).sessionId === selectedSession?.id && a.type === "student" && (a as any).status === "Submitted" && a.clusterId === myClusterId);
-  // Can edit only when session completed and either within 48h window before initial submit or reopened; after submit it becomes read-only until reopen
-  const canEdit = !isSuper && !!selectedSession?.completedAt && ((selectedSession.reopenUntil && new Date(selectedSession.reopenUntil) > new Date()) || (windowOpen && !hasSubmitted));
+  // Can edit: cluster admin can always edit for ongoing/planned sessions,
+  // or within 48h window after completion, or when reopened
+  const canEdit = !isSuper && !!selectedSession && (
+    selectedSession.status === "Ongoing" ||
+    selectedSession.status === "Planned" ||
+    (selectedSession.status === "Completed" && (
+      (selectedSession.reopenUntil && new Date(selectedSession.reopenUntil) > new Date()) ||
+      (windowOpen && !hasSubmitted)
+    ))
+  );
 
   // Live clock to refresh window remaining every second
   const [now, setNow] = useState(() => Date.now());
@@ -261,9 +269,7 @@ function StudentsAttendancePage() {
 
   const handleSubmit = async () => {
     if (!selectedSession) return toast.error("No session selected");
-    const hwPending = filteredStudents.filter(st => homework[st.id] === "pending").length;
     if (pendingCount > 0) return toast.error(`${pendingCount} students still pending`);
-    if (hwPending > 0) return toast.error(`${hwPending} students have homework pending`);
 
     // build detailed attendance mapping
     const details: Record<string, "present" | "absent"> = {};
@@ -283,25 +289,28 @@ function StudentsAttendancePage() {
       details,
     } as any);
 
-    // persist homework details
-    const hwDetails: Record<string, "completed" | "incomplete"> = {};
-    filteredStudents.forEach(st => { hwDetails[st.id] = homework[st.id] === "completed" ? "completed" : "incomplete"; });
-    await s.upsert("homework", {
-      id: newId(),
-      date: selectedSession.date ?? new Date().toISOString().slice(0,10),
-      schoolId: schoolFilter || "",
-      completed: Object.values(hwDetails).filter(v => v === "completed").length,
-      partial: 0,
-      notDone: Object.values(hwDetails).filter(v => v === "incomplete").length,
-      status: "Submitted",
-      sessionId: selectedSession.id,
-      clusterId: myClusterId,
-      details: hwDetails,
-    } as any);
+    // persist homework details (only if any entered — optional)
+    const hwEntered = filteredStudents.filter(st => homework[st.id] !== "pending");
+    if (hwEntered.length > 0) {
+      const hwDetails: Record<string, "completed" | "incomplete"> = {};
+      hwEntered.forEach(st => { hwDetails[st.id] = homework[st.id] === "completed" ? "completed" : "incomplete"; });
+      await s.upsert("homework", {
+        id: newId(),
+        date: selectedSession.date ?? new Date().toISOString().slice(0,10),
+        schoolId: schoolFilter || "",
+        completed: Object.values(hwDetails).filter(v => v === "completed").length,
+        partial: 0,
+        notDone: Object.values(hwDetails).filter(v => v === "incomplete").length,
+        status: "Submitted",
+        sessionId: selectedSession.id,
+        clusterId: myClusterId,
+        details: hwDetails,
+      } as any);
+    }
 
     // clear local draft
     localStorage.removeItem(draftKey(selectedSession.id));
-    toast.success("Submitted final — visible to Super Admin");
+    toast.success("Submitted — visible to Super Admin");
   };
 
   return (
@@ -337,7 +346,7 @@ function StudentsAttendancePage() {
                       <Button variant="outline" size="sm" onClick={() => handleMarkAll("absent")}><RotateCcw className="h-4 w-4 mr-2" /> Mark All Absent</Button>
                       <Button variant="outline" size="sm" onClick={() => handleMarkAll("present")}><Users className="h-4 w-4 mr-2" /> Mark All Present</Button>
                       <Button size="sm" onClick={handleSave}><Save className="h-4 w-4 mr-2" /> Save Draft</Button>
-                      <Button size="sm" onClick={handleSubmit}><Send className="h-4 w-4 mr-2" /> Submit Attendance</Button>
+                      <Button size="sm" onClick={handleSubmit} disabled={filteredStudents.length === 0}><Send className="h-4 w-4 mr-2" /> Submit Attendance</Button>
                     </>
                   )}
 
