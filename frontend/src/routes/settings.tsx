@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
 import { SmartShell as AppShell, SmartPageHeader as PageHeader } from "@/components/layout/smart-shell";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { useStore } from "@/lib/store";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/settings")({
@@ -25,9 +27,18 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
     </div>
   );
 }
-const save = () => toast.success("Settings saved");
-
 function Page() {
+  const s = useStore();
+  const financeSettings = s.financeSettings?.[0];
+  const [financerName, setFinancerName] = useState(financeSettings?.defaultFinancerName ?? "TQI Finance Team");
+  const [lockHours, setLockHours] = useState(String(financeSettings?.lockAfterHours ?? 48));
+
+  const saveFinance = () => {
+    if (financeSettings) {
+      s.upsert("financeSettings", { ...financeSettings, defaultFinancerName: financerName, lockAfterHours: Number(lockHours) });
+    }
+    toast.success("Finance settings saved");
+  };
   return (
     <AppShell>
       <PageHeader title="Settings" description="System, profile, security and module configuration." />
@@ -46,7 +57,7 @@ function Page() {
             <Row label="Organization name"><Input defaultValue="Talent Quest for India" className="w-64" /></Row>
             <Row label="Default time zone"><Input defaultValue="Asia/Kolkata" className="w-64" /></Row>
             <Row label="Maintenance mode" hint="Disable user logins"><Switch /></Row>
-            <div className="text-right"><Button onClick={save}>Save</Button></div>
+            <div className="text-right"><Button onClick={() => toast.success("Settings saved")}>Save</Button></div>
           </Section>
         </TabsContent>
         <TabsContent value="profile" className="mt-4">
@@ -58,7 +69,7 @@ function Page() {
             <Row label="Full name"><Input defaultValue="Aarav Mehta" className="w-64" /></Row>
             <Row label="Email"><Input defaultValue="aarav@tqi.org" className="w-64" /></Row>
             <Row label="Phone"><Input defaultValue="+91 98765 43210" className="w-64" /></Row>
-            <div className="text-right"><Button onClick={save}>Save</Button></div>
+            <div className="text-right"><Button onClick={() => toast.success("Settings saved")}>Save</Button></div>
           </Section>
         </TabsContent>
         <TabsContent value="email" className="mt-4">
@@ -67,16 +78,22 @@ function Page() {
             <Row label="Port"><Input defaultValue="587" className="w-24" /></Row>
             <Row label="From address"><Input defaultValue="no-reply@tqi.org" className="w-64" /></Row>
             <Row label="TLS" hint="Encrypt connection"><Switch defaultChecked /></Row>
-            <div className="text-right"><Button onClick={save}>Save</Button></div>
+            <div className="text-right"><Button onClick={() => toast.success("Settings saved")}>Save</Button></div>
           </Section>
         </TabsContent>
         <TabsContent value="finance" className="mt-4">
-          <Section title="Finance">
+          <Section title="Finance Settings">
             <Row label="Currency"><Input defaultValue="INR (₹)" className="w-40" /></Row>
             <Row label="Advance cap (₹)"><Input type="number" defaultValue={100000} className="w-40" /></Row>
+            <Row label="Default Financer Name" hint="Auto-filled in all finance entries. Cluster Admin cannot edit.">
+              <Input value={financerName} onChange={(e) => setFinancerName(e.target.value)} className="w-64" placeholder="e.g. TQI Finance Team" />
+            </Row>
+            <Row label="Finance Lock (hours after session)" hint="Cluster Admin has this many hours to update finance after session.">
+              <Input type="number" value={lockHours} onChange={(e) => setLockHours(e.target.value)} className="w-24" min={1} max={168} />
+            </Row>
             <Row label="Require bill for expense"><Switch defaultChecked /></Row>
             <Row label="Auto-close on settlement"><Switch /></Row>
-            <div className="text-right"><Button onClick={save}>Save</Button></div>
+            <div className="text-right"><Button onClick={saveFinance}>Save Finance Settings</Button></div>
           </Section>
         </TabsContent>
         <TabsContent value="timeline" className="mt-4">

@@ -21,13 +21,75 @@ export interface HomeworkRow { id: ID; date: string; schoolId: ID; completed: nu
 export interface Bill {
   id: ID;
   name: string;
-  /** Processed clean scan (B&W, background removed) */
   url: string;
-  /** Raw camera/upload image before processing */
   originalUrl?: string;
   type: "uploaded" | "scanned";
+  amount?: number;
+  remarks?: string;
+  vendorName?: string;
+  hotelName?: string;
+  vehicleNumber?: string;
+  billNumber?: string;
 }
-export interface Expense { id: ID; date: string; category: "Travel" | "Food" | "Stationery" | "Other"; amount: number; description?: string; submittedBy: string; status: "Pending" | "Approved" | "Rejected"; bills: Bill[]; advanceId?: ID; travelFrom?: string; travelTo?: string; breakfast?: number; lunch?: number; dinner?: number; refreshment?: number; remarks?: string; }
+
+export interface FoodBill {
+  subCategory: "Breakfast" | "Lunch" | "Dinner" | "Refreshments";
+  bills: Bill[];
+  volunteerCount: number;
+  remarks?: string;
+}
+
+export interface Expense {
+  id: ID;
+  sessionDay: number;
+  date: string;
+  clusterId?: ID;
+  clusterName?: string;
+  collegeName?: string;
+  financerName?: string;
+  submittedBy: string;
+  category: "Travel" | "Food" | "Stationery" | "Cab" | "Auto" | "Fuel" | "Other";
+  amount: number;
+  description?: string;
+  status: "Pending" | "Approved" | "Rejected" | "Locked";
+  bills: Bill[];
+  advanceId?: ID;
+  // Travel / Cab / Auto
+  travelFrom?: string;
+  travelTo?: string;
+  volunteerCount?: number;
+  // Food
+  foodBills?: FoodBill[];
+  // Stationery
+  itemName?: string;
+  quantity?: number;
+  // Fuel
+  fuelType?: string;
+  litres?: number;
+  vehicleNumber?: string;
+  // Other
+  purpose?: string;
+  remarks?: string;
+  lockedAt?: string;
+  reopenRequestId?: ID;
+}
+
+export interface FinanceSettings {
+  id: ID;
+  defaultFinancerName: string;
+  lockAfterHours: number;
+}
+
+export interface ReopenRequest {
+  id: ID;
+  clusterId: ID;
+  sessionDay: number;
+  reason: string;
+  requestedBy: string;
+  requestDate: string;
+  status: "Pending" | "Approved" | "Rejected";
+  approvedUntil?: string;
+}
 export interface Advance { id: ID; amount: number; date: string; receivedFrom: string; utr: string; status: "Pending" | "Approved" | "Settled"; remarks: string; }
 export interface Refund { id: ID; amount: number; date: string; utr: string; txn: string; remarks: string; status: "Pending" | "Completed"; }
 export interface ApprovalReq { id: ID; type: "Finance" | "Advance" | "Refund" | "Timeline" | "Extension"; reference: string; requestedBy: string; amount?: number; date: string; status: "Pending" | "Approved" | "Rejected"; remarks?: string; }
@@ -56,8 +118,10 @@ const seed = () => {
   const timeline: TimelineTask[] = [];
   const notifications: Notif[] = [];
   const auditLogs: AuditEntry[] = [];
+  const financeSettings: FinanceSettings[] = [{ id: "default", defaultFinancerName: "TQI Finance Team", lockAfterHours: 48 }];
+  const reopenRequests: ReopenRequest[] = [];
 
-  return { academicYears, clusters, panchayats, villages, schools, colleges, admins, students, volunteers, sessions, attendance, homework, advances, expenses, refunds, approvals, timeline, notifications, auditLogs };
+  return { academicYears, clusters, panchayats, villages, schools, colleges, admins, students, volunteers, sessions, attendance, homework, advances, expenses, refunds, approvals, timeline, notifications, auditLogs, financeSettings, reopenRequests };
 };
 
 interface DB extends ReturnType<typeof seed> {}
