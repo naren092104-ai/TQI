@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Checkbox } from "@/components/ui/checkbox";
-import { useStore } from "@/lib/store";
+import { useStore, newId } from "@/lib/store";
 import { useAuth, isClusterAdmin } from "@/lib/auth";
 import { toast } from "sonner";
 import {
@@ -95,15 +95,43 @@ function StudentsAttendancePage() {
     toast.success(`Marked all as ${status}`);
   };
 
-  const handleSave = () => {
-    toast.success("Attendance saved successfully");
+  const handleSave = async () => {
+    if (filteredStudents.length === 0) return toast.error("No students to save attendance for");
+    const today = dateFilter || new Date().toISOString().slice(0, 10);
+    const selectedSession = sessionDays.find(d => d.day === selectedDay);
+    const sessionDate = selectedSession?.date !== "—" ? selectedSession?.date : today;
+
+    // Group by school and save attendance rows
+    const schoolGroups: Record<string, { present: number; total: number }> = {};
+    filteredStudents.forEach(st => {
+      if (!schoolGroups[st.schoolId]) schoolGroups[st.schoolId] = { present: 0, total: 0 };
+      schoolGroups[st.schoolId].total += 1;
+      if (attendance[st.id] === "present") schoolGroups[st.schoolId].present += 1;
+    });
+
+    try {
+      for (const [schoolId, counts] of Object.entries(schoolGroups)) {
+        await s.upsert("attendance", {
+          id: newId(),
+          date: sessionDate,
+          schoolId,
+          present: counts.present,
+          total: counts.total,
+          type: "student",
+        } as any);
+      }
+      toast.success("Attendance saved successfully");
+    } catch {
+      toast.error("Failed to save — check backend connection");
+    }
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (pendingCount > 0) {
       return toast.error(`${pendingCount} students still pending`);
     }
-    toast.success("Attendance submitted");
+    await handleSave();
+    toast.success("Attendance submitted successfully");
   };
 
   return (

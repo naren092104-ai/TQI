@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Checkbox } from "@/components/ui/checkbox";
-import { useStore } from "@/lib/store";
+import { useStore, newId } from "@/lib/store";
 import { useAuth, isClusterAdmin } from "@/lib/auth";
 import { toast } from "sonner";
 import {
@@ -94,15 +94,47 @@ function VolunteersPage() {
     toast.success(`Marked all as ${status}`);
   };
 
-  const handleSave = () => {
-    toast.success("Attendance saved successfully");
+  const handleSave = async () => {
+    if (filteredVolunteers.length === 0) return toast.error("No volunteers to save attendance for");
+    const today = dateFilter || new Date().toISOString().slice(0, 10);
+    const selectedSession = sessionDays.find(d => d.day === selectedDay);
+    const sessionDate = selectedSession?.date !== "—" ? selectedSession?.date : today;
+
+    const presentIds = filteredVolunteers.filter(v => attendance[v.id] === "present").map(v => v.id);
+    const absentIds = filteredVolunteers.filter(v => attendance[v.id] === "absent").map(v => v.id);
+
+    try {
+      // Save as attendance record grouped by cluster
+      const clusterMap: Record<string, { present: number; total: number }> = {};
+      filteredVolunteers.forEach(v => {
+        const key = v.clusterId || "unknown";
+        if (!clusterMap[key]) clusterMap[key] = { present: 0, total: 0 };
+        clusterMap[key].total += 1;
+        if (attendance[v.id] === "present") clusterMap[key].present += 1;
+      });
+
+      for (const [, counts] of Object.entries(clusterMap)) {
+        await s.upsert("attendance", {
+          id: newId(),
+          date: sessionDate,
+          schoolId: myClusterId || "cluster",
+          present: counts.present,
+          total: counts.total,
+          type: "volunteer",
+        } as any);
+      }
+      toast.success("Volunteer attendance saved successfully");
+    } catch {
+      toast.error("Failed to save — check backend connection");
+    }
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (pendingCount > 0) {
       return toast.error(`${pendingCount} volunteers still pending`);
     }
-    toast.success("Attendance submitted");
+    await handleSave();
+    toast.success("Volunteer attendance submitted successfully");
   };
 
   return (

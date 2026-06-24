@@ -425,7 +425,9 @@ function Page() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
-            <Button onClick={saveStudent} disabled={!addSchool}>Save Student</Button>
+            <Button onClick={saveStudent} disabled={!addSchool || !addForm.name.trim() || !addForm.phone.trim() || !addForm.grade}>
+              Save Student
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
