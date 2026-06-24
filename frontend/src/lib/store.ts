@@ -15,9 +15,24 @@ export interface College { id: ID; name: string; city: string; affiliated: strin
 export interface Admin { id: ID; name: string; email: string; username: string; password?: string; phone?: string; college?: string; role: "Super Admin" | "Admin" | "Cluster Admin" | "Finance"; active: boolean; lastLogin: string; createdAt: string; clusterId?: ID; forcePasswordChange?: boolean; }
 export interface Student { id: ID; name: string; rollNo: string; schoolId: ID; villageId?: ID; panchayatId?: ID; clusterId?: ID; grade: string; gender: "M" | "F"; dob?: string; parentName?: string; parentPhone?: string; guardian: string; phone: string; address?: string; status?: string; createdAt?: string; updatedAt?: string; }
 export interface Volunteer { id: ID; name: string; email: string; phone: string; clusterId: ID; skill: string; sessions: number; college?: string; department?: string; year?: string; address?: string; }
-export interface Session { id: ID; day: number; title: string; date: string; clusterId: ID; status: "Planned" | "Ongoing" | "Completed" | "Cancelled"; trainer: string; }
+export interface Session { id: ID; day: number; title: string; description?: string; date: string; clusterId: ID; status: "Planned" | "Ongoing" | "Completed" | "Cancelled" | "Locked"; trainer: string; conductedDate?: string; completedAt?: string; lockedAt?: string; reopenUntil?: string; completedBy?: string; dateSetAt?: string; }
 export interface AttendanceRow { id: ID; date: string; schoolId: ID; present: number; total: number; type: "student" | "volunteer"; }
 export interface HomeworkRow { id: ID; date: string; schoolId: ID; completed: number; partial: number; notDone: number; }
+// Extended attendance/homework details for per-student tracking
+export interface AttendanceRowDetailed extends AttendanceRow {
+  status?: "Draft" | "Submitted";
+  sessionId?: ID;
+  clusterId?: ID;
+  // map studentId -> "present" | "absent"
+  details?: Record<ID, "present" | "absent">;
+}
+export interface HomeworkRowDetailed extends HomeworkRow {
+  status?: "Draft" | "Submitted";
+  sessionId?: ID;
+  clusterId?: ID;
+  // map studentId -> "completed" | "incomplete"
+  details?: Record<ID, "completed" | "incomplete">;
+}
 export interface Bill {
   id: ID;
   name: string;
@@ -89,12 +104,16 @@ export interface ReopenRequest {
   requestDate: string;
   status: "Pending" | "Approved" | "Rejected";
   approvedUntil?: string;
+  // optional target identifies what this reopen is for (e.g., "Finance", "Attendance")
+  target?: string;
+  // optional reference to the expense / resource id
+  expenseId?: ID;
 }
 export interface Advance { id: ID; amount: number; date: string; receivedFrom: string; utr: string; status: "Pending" | "Approved" | "Settled"; remarks: string; }
 export interface Refund { id: ID; amount: number; date: string; utr: string; txn: string; remarks: string; status: "Pending" | "Completed"; }
-export interface ApprovalReq { id: ID; type: "Finance" | "Advance" | "Refund" | "Timeline" | "Extension"; reference: string; requestedBy: string; amount?: number; date: string; status: "Pending" | "Approved" | "Rejected"; remarks?: string; }
+export interface ApprovalReq { id: ID; type: "Finance" | "Advance" | "Refund" | "Timeline" | "Extension" | "Reopen"; reference: string; requestedBy: string; amount?: number; date: string; status: "Pending" | "Approved" | "Rejected"; remarks?: string; sessionId?: ID; clusterId?: ID; target?: "Student" | "Volunteer" | string; }
 export interface TimelineTask { id: ID; title: string; due: string; owner: string; status: "Not Started" | "Pending" | "Completed" | "Locked" | "Extension Requested"; }
-export interface Notif { id: ID; title: string; body: string; type: "Finance" | "Refund" | "Timeline" | "Admin" | "Alert"; read: boolean; at: string; }
+export interface Notif { id: ID; title: string; body: string; type: "Finance" | "Refund" | "Timeline" | "Admin" | "Alert" | "Reopen"; read: boolean; at: string; }
 export interface AuditEntry { id: ID; user: string; action: string; at: string; ip: string; }
 
 // ---- Seed ----
@@ -109,8 +128,8 @@ const seed = () => {
   const students: Student[] = [];
   const volunteers: Volunteer[] = [];
   const sessions: Session[] = [];
-  const attendance: AttendanceRow[] = [];
-  const homework: HomeworkRow[] = [];
+  const attendance: AttendanceRowDetailed[] = [];
+  const homework: HomeworkRowDetailed[] = [];
   const advances: Advance[] = [];
   const expenses: Expense[] = [];
   const refunds: Refund[] = [];
@@ -145,11 +164,31 @@ export const useStore = create<Store>()((set, get) => ({
     const token = getToken();
     if (!validateToken(token)) return;
 
+    // These resources are local-only (no backend table) — skip them
+    const localOnlyKeys = new Set(["financeSettings", "reopenRequests", "attendance", "homework", "expenses"]);
+    const sessionStorageKeys = new Set(["attendance", "homework", "expenses"]);
+
     const keys = Object.keys(seed()) as Array<keyof DB>;
     const loaded = { ...seed() } as DB;
     let loadedAny = false;
+    
+    // Load attendance/homework from sessionStorage if available
+    keys.forEach((resource) => {
+      if (sessionStorageKeys.has(resource as string)) {
+        try {
+          const stored = sessionStorage.getItem(`tqi:${resource}`);
+          if (stored) {
+            (loaded as any)[resource] = JSON.parse(stored);
+          }
+        } catch (e) {
+          console.warn(`Failed to load ${resource} from sessionStorage`, e);
+        }
+      }
+    });
+    
     await Promise.all(
       keys.map(async (resource) => {
+        if (localOnlyKeys.has(resource as string)) return; // skip local-only
         try {
           (loaded as any)[resource] = await fetchResource(resource as string);
           loadedAny = true;
@@ -168,9 +207,21 @@ export const useStore = create<Store>()((set, get) => ({
     await get().init();
   },
   upsert: async (key, item: any) => {
+    const localOnlyKeys = new Set(["financeSettings", "reopenRequests", "attendance", "homework", "expenses"]);
+    const sessionStorageKeys = new Set(["attendance", "homework", "expenses"]);
     const current = get();
     const arr = (current[key] as any[]).slice();
     const idx = arr.findIndex((x) => x.id === item.id);
+    if (localOnlyKeys.has(key as string)) {
+      // Local-only: just update in memory, no API call
+      if (idx >= 0) arr[idx] = item; else arr.unshift(item);
+      set({ [key]: arr } as any);
+      // Persist to sessionStorage for attendance/homework
+      if (sessionStorageKeys.has(key as string)) {
+        sessionStorage.setItem(`tqi:${key}`, JSON.stringify(arr));
+      }
+      return;
+    }
     try {
       const updated = await upsertResource(key as string, item);
       if (idx >= 0) arr[idx] = updated; else arr.unshift(updated);
@@ -181,14 +232,34 @@ export const useStore = create<Store>()((set, get) => ({
     set({ [key]: arr } as any);
   },
   remove: async (key, id) => {
-    try {
-      await deleteResource(key as string, id);
-    } catch (error) {
-      console.error("Failed to delete resource", error);
+    const localOnlyKeys = new Set(["financeSettings", "reopenRequests", "attendance", "homework", "expenses"]);
+    const sessionStorageKeys = new Set(["attendance", "homework", "expenses"]);
+    if (!localOnlyKeys.has(key as string)) {
+      try {
+        await deleteResource(key as string, id);
+      } catch (error) {
+        console.error("Failed to delete resource", error);
+      }
     }
     set((s) => ({ [key]: (s[key] as any[]).filter((x) => x.id !== id) } as any));
+    // Persist to sessionStorage for attendance/homework
+    if (sessionStorageKeys.has(key as string)) {
+      const s = get();
+      sessionStorage.setItem(`tqi:${key}`, JSON.stringify(s[key as keyof DB]));
+    }
   },
   patch: async (key, id, patch: any) => {
+    const localOnlyKeys = new Set(["financeSettings", "reopenRequests", "attendance", "homework", "expenses"]);
+    const sessionStorageKeys = new Set(["attendance", "homework", "expenses"]);
+    if (localOnlyKeys.has(key as string)) {
+      set((s) => ({ [key]: (s[key] as any[]).map((x) => (x.id === id ? { ...x, ...patch } : x)) } as any));
+      // Persist to sessionStorage for attendance/homework
+      if (sessionStorageKeys.has(key as string)) {
+        const s = get();
+        sessionStorage.setItem(`tqi:${key}`, JSON.stringify(s[key as keyof DB]));
+      }
+      return;
+    }
     try {
       const updated = await patchResource(key as string, id, patch);
       set((s) => ({ [key]: (s[key] as any[]).map((x) => (x.id === id ? updated : x)) } as any));

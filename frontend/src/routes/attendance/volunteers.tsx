@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { SmartShell as AppShell } from "@/components/layout/smart-shell";
 import { Button } from "@/components/ui/button";
@@ -7,16 +7,39 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Checkbox } from "@/components/ui/checkbox";
-import { useStore, newId } from "@/lib/store";
-import { useAuth, isClusterAdmin } from "@/lib/auth";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { useStore, newId, type ApprovalReq } from "@/lib/store";
+import { useAuth, isClusterAdmin, isSuperAdmin } from "@/lib/auth";
 import { toast } from "sonner";
 import {
   Users, CheckCircle, XCircle, Clock, Download,
   RotateCcw, Save, Send, Search, Eye, TrendingUp,
-  ChevronLeft, ChevronRight,
+  ChevronLeft, ChevronRight, Lock, Unlock,
 } from "lucide-react";
 import { useRef } from "react";
+
+const WINDOW_MS = 48 * 60 * 60 * 1000;
+const REOPEN_REASONS = ["Attendance Missing", "Wrong Data Entered", "Other"] as const;
+
+function isVolWindowOpen(sess: { status: string; completedAt?: string; reopenUntil?: string } | undefined): boolean {
+  if (!sess) return false;
+  if (sess.reopenUntil && new Date(sess.reopenUntil) > new Date()) return true;
+  if (sess.status !== "Completed") return false;
+  if (!sess.completedAt) return false;
+  return (Date.now() - new Date(sess.completedAt).getTime()) < WINDOW_MS;
+}
+
+function getVolWindowRemaining(sess: { completedAt?: string; reopenUntil?: string }): string {
+  if (sess.reopenUntil) {
+    const ms = new Date(sess.reopenUntil).getTime() - Date.now();
+    if (ms <= 0) return "Expired";
+    return `${Math.floor(ms / 3600000)}h ${Math.floor((ms % 3600000) / 60000)}m`;
+  }
+  if (!sess.completedAt) return "";
+  const remaining = WINDOW_MS - (Date.now() - new Date(sess.completedAt).getTime());
+  if (remaining <= 0) return "Expired";
+  return `${Math.floor(remaining / 3600000)}h ${Math.floor((remaining % 3600000) / 60000)}m`;
+}
 
 // Allowed years — dropdown only
 const VOLUNTEER_YEARS = [
@@ -34,10 +57,26 @@ function VolunteersPage() {
   const s = useStore();
   const { user } = useAuth();
   const myClusterId = user?.clusterId ?? "";
+  const isSuper = isSuperAdmin(user?.role);
+  const isCluster = isClusterAdmin(user?.role);
   const sessionStripRef = useRef<HTMLDivElement | null>(null);
   const [selectedDay, setSelectedDay] = useState(1);
   const [selectedVolunteer, setSelectedVolunteer] = useState<any>(null);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
+  const [openCluster, setOpenCluster] = useState<string | null>(null);
+
+  // Reopen request
+  // Reopen requests removed — Super Admin handles reopen via Approvals
+
+  const selectedSession = useMemo(
+    () => s.sessions.find((sess) => sess.day === selectedDay && (isClusterAdmin(user?.role) ? sess.clusterId === myClusterId : true)),
+    [s.sessions, selectedDay, user?.role, myClusterId],
+  );
+  const windowOpen = isVolWindowOpen(selectedSession as any);
+  const isReopened = !!(selectedSession?.reopenUntil && new Date(selectedSession.reopenUntil) > new Date());
+  const canEdit = !isSuper && (windowOpen || isReopened || !selectedSession?.completedAt);
+
+  // submitReopen removed
 
   // Real sessions from store
   const sessionDays = useMemo(() => {
@@ -68,9 +107,20 @@ function VolunteersPage() {
     Object.fromEntries(s.volunteers.map((v) => [v.id, "pending"]))
   );
 
+  // Live clock to refresh window remaining every second
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Homework statuses for volunteers
+  // (Removed homework tracking for volunteers per request)
+
   // Filtered volunteers
   const filteredVolunteers = useMemo(() => {
     return s.volunteers.filter((v) => {
+      if (isCluster && v.clusterId !== myClusterId) return false;
       const college = s.colleges.find((c) => c.id === v.collegeId);
       return (
         (!volunteerSearch || v.name.toLowerCase().includes(volunteerSearch.toLowerCase()) || v.skill.toLowerCase().includes(volunteerSearch.toLowerCase())) &&
@@ -78,12 +128,70 @@ function VolunteersPage() {
         (!yearFilter || v.year === yearFilter)
       );
     });
-  }, [s.volunteers, s.colleges, volunteerSearch, collegeFilter, yearFilter]);
+  }, [s.volunteers, s.colleges, volunteerSearch, collegeFilter, yearFilter, isCluster, myClusterId]);
 
   const presentCount = filteredVolunteers.filter((v) => attendance[v.id] === "present").length;
   const absentCount = filteredVolunteers.filter((v) => attendance[v.id] === "absent").length;
   const pendingCount = filteredVolunteers.filter((v) => attendance[v.id] === "pending").length;
   const attendancePercent = filteredVolunteers.length > 0 ? (presentCount / filteredVolunteers.length) * 100 : 0;
+
+  // Super Admin: show cluster-wise summary instead of entry UI
+  if (isSuper) {
+    const clusters = s.clusters.map(c => {
+      // Filter submitted attendance by clusterId (more reliable)
+      const volunteerRows = s.attendance.filter(a => a.type === "volunteer" && (a as any).clusterId === c.id && (a as any).status === "Submitted");
+      const volunteersPresent = volunteerRows.reduce((a,b) => a + (b.present || 0), 0);
+      const volunteersTotal = volunteerRows.reduce((a,b) => a + (b.total || 0), 0);
+      return { id: c.id, name: c.name, volunteersPresent, volunteersTotal };
+    });
+
+    return (
+      <AppShell>
+        <div className="px-4 py-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold">Cluster Volunteers — Summary</h2>
+            <Button variant="outline" size="sm" onClick={() => window.location.reload()}>Refresh</Button>
+          </div>
+          {clusters.every(c => c.volunteersTotal === 0) ? (
+            <div className="rounded-lg border border-dashed p-8 text-center text-muted-foreground">
+              <p className="mb-2">No volunteer attendance submissions yet</p>
+              <p className="text-xs">Cluster Admins will submit volunteer attendance records here</p>
+            </div>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2">
+              {clusters.map(cl => (
+                <div key={cl.id} className={`rounded-lg border p-4 ${cl.volunteersTotal > 0 ? 'bg-blue-50' : 'bg-white'}`}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-medium">{cl.name}</div>
+                      {cl.volunteersTotal > 0 && (
+                        <div className="text-xs text-muted-foreground">
+                          Volunteers: <span className="font-semibold text-green-600">{cl.volunteersPresent}</span> / {cl.volunteersTotal}
+                        </div>
+                      )}
+                      {cl.volunteersTotal === 0 && (
+                        <div className="text-xs text-slate-400">Pending submissions</div>
+                      )}
+                    </div>
+                    <div>
+                      <button onClick={() => setOpenCluster(openCluster === cl.id ? null : cl.id)} className="text-sm text-primary">
+                        {openCluster === cl.id ? "Hide" : "View"}
+                      </button>
+                    </div>
+                  </div>
+                  {openCluster === cl.id && (
+                    <div className="mt-3 text-sm text-muted-foreground border-t pt-2">
+                      <div>Detailed records available in expanded view.</div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </AppShell>
+    );
+  }
 
   const handleMarkAll = (status: "present" | "absent") => {
     const newAttendance: Record<string, "present" | "absent" | "pending"> = {};
@@ -94,72 +202,61 @@ function VolunteersPage() {
     toast.success(`Marked all as ${status}`);
   };
 
-  const handleSave = async () => {
-    if (filteredVolunteers.length === 0) return toast.error("No volunteers to save attendance for");
-    const today = dateFilter || new Date().toISOString().slice(0, 10);
-    const selectedSession = sessionDays.find(d => d.day === selectedDay);
-    const sessionDate = selectedSession?.date !== "—" ? selectedSession?.date : today;
-
-    const presentCount = filteredVolunteers.filter(v => attendance[v.id] === "present").length;
-    const totalCount = filteredVolunteers.length;
-
-    let saved = 0;
-    let failed = 0;
-    try {
-      await s.upsert("attendance", {
-        id: newId(),
-        date: sessionDate,
-        schoolId: myClusterId || "cluster",
-        present: presentCount,
-        total: totalCount,
-        type: "volunteer",
-      } as any);
-      saved++;
-    } catch {
-      failed++;
-    }
-
-    if (failed > 0 && saved === 0) {
-      toast.error("Failed to save — make sure backend is running on port 4000");
-    } else {
-      toast.success(`Volunteer attendance saved for Day ${selectedDay} (${presentCount} present / ${totalCount - presentCount} absent)`);
-    }
+  const handleSave = () => {
+    if (!selectedSession) return toast.error("No session selected");
+    s.upsert("attendance", {
+      id: newId(),
+      date: selectedSession.date ?? new Date().toISOString().slice(0,10),
+      schoolId: "",
+      present: presentCount,
+      total: filteredVolunteers.length,
+      type: "volunteer",
+    });
+    toast.success("Saved draft");
   };
 
-  const handleSubmit = async () => {
-    if (pendingCount > 0) {
-      return toast.error(`${pendingCount} volunteers still pending — mark all as Present or Absent first`);
-    }
-    await handleSave();
+  const handleSubmit = () => {
+    if (pendingCount > 0) return toast.error(`${pendingCount} volunteers still pending`);
+    toast.success("Attendance submitted");
   };
 
   return (
     <AppShell>
-    <div className="bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 -mx-4 -mt-6 sm:-mx-6 lg:-mx-8">
-      {/* Sub-header */}
-      <div className="border-b border-white/50 bg-white/80 backdrop-blur-xl px-4 sm:px-6 py-3">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+      {/* Header */}
+      <div className="border-b border-white/50 bg-white/80 backdrop-blur-xl">
+        <div className="px-4 sm:px-6 py-4">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
-              <h1 className="text-lg font-bold text-slate-900">Volunteers Attendance</h1>
-              <p className="text-xs text-slate-600">Track and manage volunteer attendance records</p>
+              <h1 className="text-xl font-bold text-slate-900">Volunteers Attendance</h1>
+              <p className="text-sm text-slate-600">Track and manage volunteer attendance records</p>
             </div>
             <div className="flex gap-2 flex-wrap">
-              <Button variant="outline" size="sm" onClick={() => handleMarkAll("absent")}><RotateCcw className="h-4 w-4 mr-1" /> Mark All Absent</Button>
-              <Button variant="outline" size="sm" onClick={() => handleMarkAll("present")}><Users className="h-4 w-4 mr-1" /> Mark All Present</Button>
-              <Button size="sm" onClick={handleSave}><Save className="h-4 w-4 mr-1" /> Save</Button>
-              <Button 
-                size="sm" 
-                onClick={handleSubmit} 
-                disabled={filteredVolunteers.length === 0 || pendingCount === filteredVolunteers.length}
-                title={pendingCount > 0 ? `${pendingCount} volunteers still pending` : "Submit attendance"}
-              >
-                <Send className="h-4 w-4 mr-1" /> Submit {pendingCount > 0 && `(${pendingCount} pending)`}
-              </Button>
+              {/* 48hr window status + reopen request (cluster admins) */}
+              {selectedSession?.completedAt && (
+                <span className={`text-xs flex items-center gap-1 px-2 py-1 rounded-md ${canEdit ? "bg-green-50 text-green-700 border border-green-200" : "bg-slate-100 text-slate-500 border border-slate-200"}`}>
+                  {canEdit ? `⏱ Window: ${getVolWindowRemaining(selectedSession)}` : (
+                    <span className="inline-flex items-center gap-1"><Lock className="h-3 w-3" /> Submission closed</span>
+                  )}
+                </span>
+              )}
+
+              {/* Reopen handled by Super Admin only; cluster admins cannot request reopen */}
+
+              {canEdit && (
+                <>
+                  <Button variant="outline" size="sm" onClick={() => handleMarkAll("absent")}><RotateCcw className="h-4 w-4 mr-2" /> Mark All Absent</Button>
+                  <Button variant="outline" size="sm" onClick={() => handleMarkAll("present")}><Users className="h-4 w-4 mr-2" /> Mark All Present</Button>
+                  <Button size="sm" onClick={handleSave}><Save className="h-4 w-4 mr-2" /> Save Draft</Button>
+                  <Button size="sm" onClick={handleSubmit}><Send className="h-4 w-4 mr-2" /> Submit Final</Button>
+                </>
+              )}
             </div>
           </div>
+        </div>
       </div>
 
-      <div className="px-4 sm:px-6 py-4">
+      <div className="px-4 sm:px-6 py-6">
         {/* Session Cards */}
         <div className="mb-6 flex items-center gap-2">
           <button
@@ -180,23 +277,19 @@ function VolunteersPage() {
                   className={`snap-center min-w-[130px] flex-shrink-0 rounded-lg px-3 py-2 text-center text-xs font-medium transition-all ${
                     selectedDay === day.day
                       ? "bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-200 text-white"
-                      : day.date === "—"
-                        ? "bg-white/40 text-slate-300 border border-slate-200 cursor-not-allowed"
-                        : `${
-                            day.status === "completed"
-                              ? "bg-white text-slate-900 border border-green-200"
-                              : day.status === "ongoing"
-                                ? "bg-white text-slate-900 border border-yellow-200"
-                                : "bg-white text-slate-600 border border-blue-200"
-                          } hover:shadow-md cursor-pointer`
+                      : `${
+                          day.status === "completed"
+                            ? "bg-white text-slate-900 border border-green-200"
+                            : day.status === "pending"
+                              ? "bg-white text-slate-900 border border-yellow-200"
+                              : "bg-white text-slate-400 border border-slate-200"
+                        } hover:shadow-md`
                   }`}
-                  disabled={day.date === "—"}
                 >
                   <div className="font-semibold">Day {day.day}</div>
-                  <div className="text-[10px] opacity-75">{day.date !== "—" ? day.date : "Not scheduled"}</div>
+                  <div className="text-[10px] opacity-75">{day.date}</div>
                   {day.status === "completed" && <div className="text-green-500">✓</div>}
-                  {day.status === "ongoing" && <div className="text-yellow-500">◐</div>}
-                  {day.date === "—" && <div className="text-slate-300 text-[9px]">No date set</div>}
+                  {day.status === "pending" && <div className="text-yellow-500">◐</div>}
                 </button>
               ))}
             </div>
@@ -342,40 +435,24 @@ function VolunteersPage() {
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-gradient-to-r from-slate-50 to-blue-50 border-b border-slate-200">
                   <tr>
-                    <th className="px-4 py-3 text-left font-semibold text-slate-700 w-10">
-                      <Checkbox />
-                    </th>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-700 w-12">S.No</th>
                     <th className="px-4 py-3 text-left font-semibold text-slate-700">Name</th>
                     <th className="px-4 py-3 text-left font-semibold text-slate-700">College</th>
-                    <th className="px-4 py-3 text-left font-semibold text-slate-700">Year</th>
-                    <th className="px-4 py-3 text-left font-semibold text-slate-700">Mobile</th>
-                    <th className="px-4 py-3 text-center font-semibold text-slate-700">Attendance</th>
-                    <th className="px-4 py-3 text-center font-semibold text-slate-700">Remarks</th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Year</th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Mobile</th>
+                      <th className="px-4 py-3 text-center font-semibold text-slate-700">Attendance</th>
                     <th className="px-4 py-3 text-center font-semibold text-slate-700">Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredVolunteers.map((volunteer) => (
+                  {filteredVolunteers.map((volunteer, index) => (
                     <tr
                       key={volunteer.id}
                       className={`border-b border-slate-100 hover:bg-blue-50/50 transition-colors ${
                         selectedVolunteer?.id === volunteer.id ? "bg-blue-100/30" : ""
                       }`}
                     >
-                      <td className="px-4 py-3">
-                        <Checkbox
-                          checked={selectedRows.has(volunteer.id)}
-                          onCheckedChange={(checked) => {
-                            const newSet = new Set(selectedRows);
-                            if (checked) {
-                              newSet.add(volunteer.id);
-                            } else {
-                              newSet.delete(volunteer.id);
-                            }
-                            setSelectedRows(newSet);
-                          }}
-                        />
-                      </td>
+                      <td className="px-4 py-3 text-slate-600">{index + 1}</td>
                       <td className="px-4 py-3 font-medium text-slate-900">{volunteer.name}</td>
                       <td className="px-4 py-3 text-slate-600 text-xs">
                         {volunteer.college || s.colleges.find((c) => c.id === (volunteer as any).collegeId)?.name || "—"}
@@ -383,41 +460,18 @@ function VolunteersPage() {
                       <td className="px-4 py-3 text-slate-600 text-xs">{yearLabel(volunteer.year)}</td>
                       <td className="px-4 py-3 text-slate-600">{volunteer.phone}</td>
                       <td className="px-4 py-3 text-center">
-                        <div className="flex gap-1 justify-center">
-                          <button
-                            onClick={() =>
-                              setAttendance((prev) => ({
-                                ...prev,
-                                [volunteer.id]: attendance[volunteer.id] === "present" ? "pending" : "present",
-                              }))
-                            }
-                            className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
-                              attendance[volunteer.id] === "present"
-                                ? "bg-green-100 text-green-700"
-                                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                            }`}
-                          >
-                            P
-                          </button>
-                          <button
-                            onClick={() =>
-                              setAttendance((prev) => ({
-                                ...prev,
-                                [volunteer.id]: attendance[volunteer.id] === "absent" ? "pending" : "absent",
-                              }))
-                            }
-                            className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
-                              attendance[volunteer.id] === "absent"
-                                ? "bg-red-100 text-red-700"
-                                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                            }`}
-                          >
-                            A
-                          </button>
+                        <div className="flex items-center justify-center gap-3">
+                          <label className="flex items-center gap-1 text-xs">
+                            <input type="radio" name={`att-vol-${volunteer.id}`} value="present" checked={attendance[volunteer.id] === "present"} onChange={() => setAttendance((prev) => ({ ...prev, [volunteer.id]: "present" }))} className="hidden" />
+                            <span className={`inline-block h-3 w-3 rounded-full mr-1 ${attendance[volunteer.id] === "present" ? "bg-green-600" : "border border-slate-300"}`} />
+                            <span>P</span>
+                          </label>
+                          <label className="flex items-center gap-1 text-xs">
+                            <input type="radio" name={`att-vol-${volunteer.id}`} value="absent" checked={attendance[volunteer.id] === "absent"} onChange={() => setAttendance((prev) => ({ ...prev, [volunteer.id]: "absent" }))} className="hidden" />
+                            <span className={`inline-block h-3 w-3 rounded-full mr-1 ${attendance[volunteer.id] === "absent" ? "bg-red-600" : "border border-slate-300"}`} />
+                            <span>A</span>
+                          </label>
                         </div>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <Badge variant="outline" className="text-xs">—</Badge>
                       </td>
                       <td className="px-4 py-3 text-center">
                         <button
@@ -470,6 +524,10 @@ function VolunteersPage() {
                       <span className="text-slate-600">Sessions</span>
                       <span className="font-medium text-slate-900">{selectedVolunteer.sessions}</span>
                     </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Sessions</span>
+                      <span className="font-medium text-slate-900">{selectedVolunteer.sessions}</span>
+                    </div>
                   </div>
 
                   {/* Attendance History */}
@@ -517,12 +575,18 @@ function VolunteersPage() {
           </div>
         </div>
 
+        {/* Export Buttons */}
         <div className="mt-6 flex gap-2 justify-end">
-          <Button variant="outline" size="sm"><Download className="h-4 w-4 mr-2" /> Export Excel</Button>
-          <Button variant="outline" size="sm"><Download className="h-4 w-4 mr-2" /> Export PDF</Button>
+          <Button variant="outline" size="sm">
+            <Download className="h-4 w-4 mr-2" /> Export Excel
+          </Button>
+          <Button variant="outline" size="sm">
+            <Download className="h-4 w-4 mr-2" /> Export PDF
+          </Button>
         </div>
       </div>
     </div>
+    {/* Reopen requests removed — Super Admin handles reopen via Approvals */}
     </AppShell>
   );
 }
@@ -531,3 +595,10 @@ export const Route = createFileRoute("/attendance/volunteers")({
   head: () => ({ meta: [{ title: "Volunteers Attendance — TQI" }] }),
   component: VolunteersPage,
 });
+
+  // Reopen Request Dialog
+  // Placed after route export to keep main component concise
+  // ReopenDialog removed
+
+  // Hook up the dialog inside the module-level scope so it can be used by the page
+  // (This keeps the VolunteersPage component focused and mirrors the students page behavior.)

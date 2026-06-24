@@ -9,7 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { DataTable } from "@/components/layout/data-table";
 import { KpiCard } from "@/components/layout/kpi-card";
 import { ShieldCheck, Check, X, FileText } from "lucide-react";
-import { useStore, type ApprovalReq } from "@/lib/store";
+import { useStore, newId, type ApprovalReq } from "@/lib/store";
+import { useAuth, isSuperAdmin } from "@/lib/auth";
 import { inr } from "@/lib/format";
 import { toast } from "sonner";
 
@@ -20,66 +21,85 @@ export const Route = createFileRoute("/approvals")({
 
 function Page() {
   const s = useStore();
+  const { user } = useAuth();
+  const isSuper = isSuperAdmin(user?.role);
   const [action, setAction] = useState<{ row: ApprovalReq; kind: "Approved" | "Rejected" } | null>(null);
   const [remarks, setRemarks] = useState("");
 
-  const counts = (t: ApprovalReq["type"]) => s.approvals.filter(a => a.type === t && a.status === "Pending").length;
-  const submit = () => {
+  const counts = (t: ApprovalReq["type"] | "All") => {
+    if (t === "All") return s.approvals.filter(a => (a.type === "Finance" || a.type === "Reopen") && a.status === "Pending").length;
+    return s.approvals.filter(a => a.type === t && a.status === "Pending").length;
+  };
+  const submit = async () => {
     if (!action) return;
-    s.patch("approvals", action.row.id, { status: action.kind, remarks });
+    await s.patch("approvals", action.row.id, { status: action.kind, remarks });
+    if (action.row.type === "Reopen") {
+      if (action.kind === "Approved" && action.row.sessionId) {
+        await s.patch("sessions", action.row.sessionId, {
+          reopenUntil: new Date(Date.now() + 86400000).toISOString(),
+        });
+      }
+      await s.upsert("notifications", {
+        id: newId(),
+        title: `Reopen request ${action.kind.toLowerCase()}`,
+        body:
+          action.kind === "Approved"
+            ? `Reopen request for ${action.row.reference} has been approved. Cluster Admin can submit attendance again.`
+            : `Reopen request for ${action.row.reference} was rejected.`,
+        type: "Reopen",
+        read: false,
+        at: new Date().toISOString(),
+      });
+    }
     toast.success(`${action.kind}`);
     setAction(null); setRemarks("");
   };
 
-  const tableFor = (type: ApprovalReq["type"]) => (
-    <DataTable
-      exportName={`approvals-${type.toLowerCase()}`}
-      rows={s.approvals.filter(a => a.type === type)}
-      searchKeys={["reference","requestedBy"] as any}
-      columns={[
-        { key: "reference", header: "Reference", render: (r) => <span className="font-medium">{r.reference}</span> },
+  const tableFor = (rows: ApprovalReq[]) => {
+    const rowsWithSno = rows.map((r, i) => Object.assign({ _sno: i + 1 }, r));
+    return (
+      <DataTable exportName="approvals" rows={rowsWithSno} searchKeys={["reference","requestedBy"] as any} columns={[
+        { key: "_sno", header: "S.No", render: (r) => String(r._sno) },
+        { key: "cluster", header: "Cluster", render: (r) => s.clusters.find(c => c.id === r.clusterId)?.name ?? r.clusterId ?? "—" },
+        { key: "target", header: "Target", render: (r) => r.target ?? (r.type === "Finance" ? "Finance" : "—") },
+        { key: "reference", header: "Reference", render: (r) => r.reference },
         { key: "requestedBy", header: "Requested by" },
         { key: "amount", header: "Amount", render: (r) => r.amount ? inr(r.amount) : "—" },
         { key: "date", header: "Date" },
-        { key: "status", header: "Status", render: (r) =>
-          r.status === "Approved" ? <Badge className="bg-success text-success-foreground">Approved</Badge> :
-          r.status === "Rejected" ? <Badge variant="destructive">Rejected</Badge> :
-          <Badge variant="outline">Pending</Badge>
-        },
+        { key: "status", header: "Status", render: (r) => r.status },
         { key: "_act", header: "", className: "text-right", render: (r) => (
-          <div className="flex justify-end gap-1">
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => toast.info("Opened detail")}><FileText className="h-4 w-4" /></Button>
-            {r.status === "Pending" && (
-              <>
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-success" onClick={() => setAction({ row: r, kind: "Approved" })}><Check className="h-4 w-4" /></Button>
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setAction({ row: r, kind: "Rejected" })}><X className="h-4 w-4" /></Button>
-              </>
-            )}
-          </div>
+          isSuper && r.status === "Pending" ? (
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setAction({ row: r, kind: "Approved" })}>Approve</Button>
+              <Button variant="ghost" size="sm" onClick={() => setAction({ row: r, kind: "Rejected" })}>Reject</Button>
+            </div>
+          ) : null
         ) },
-      ]}
-    />
-  );
+      ]} />
+    );
+  };
+
+  const financeRows = s.approvals.filter(a => a.type === "Finance");
+  const reopenRows = s.approvals.filter(a => a.type === "Reopen");
+  const allRows = s.approvals.filter(a => a.type === "Finance" || a.type === "Reopen");
 
   return (
     <AppShell>
       <PageHeader title="Approval Center" description="Review and act on all pending requests." />
-      <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-5">
+      <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3">
+        <KpiCard label="All (Finance + Attendance)" value={counts("All")} icon={ShieldCheck} tone="primary" />
         <KpiCard label="Finance" value={counts("Finance")} icon={ShieldCheck} tone="primary" />
-        <KpiCard label="Advance" value={counts("Advance")} icon={ShieldCheck} tone="info" />
-        <KpiCard label="Refund" value={counts("Refund")} icon={ShieldCheck} tone="secondary" />
-        <KpiCard label="Timeline" value={counts("Timeline")} icon={ShieldCheck} tone="warning" />
-        <KpiCard label="Extension" value={counts("Extension")} icon={ShieldCheck} tone="success" />
+        <KpiCard label="Reopen" value={counts("Reopen")} icon={ShieldCheck} tone="warning" />
       </div>
-      <Tabs defaultValue="Finance">
+      <Tabs defaultValue="All">
         <TabsList>
-          {(["Finance","Advance","Refund","Timeline","Extension"] as const).map(t => (
+          {(["All","Finance","Reopen"] as const).map(t => (
             <TabsTrigger key={t} value={t}>{t}</TabsTrigger>
           ))}
         </TabsList>
-        {(["Finance","Advance","Refund","Timeline","Extension"] as const).map(t => (
-          <TabsContent key={t} value={t} className="mt-4">{tableFor(t)}</TabsContent>
-        ))}
+        <TabsContent value="All" className="mt-4">{tableFor(allRows)}</TabsContent>
+        <TabsContent value="Finance" className="mt-4">{tableFor(financeRows)}</TabsContent>
+        <TabsContent value="Reopen" className="mt-4">{tableFor(reopenRows)}</TabsContent>
       </Tabs>
 
       <Dialog open={!!action} onOpenChange={(o) => !o && setAction(null)}>
@@ -91,7 +111,11 @@ function Page() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAction(null)}>Cancel</Button>
-            <Button onClick={submit} className={action?.kind === "Rejected" ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : ""}>{action?.kind}</Button>
+            {isSuper ? (
+              <Button onClick={submit} className={action?.kind === "Rejected" ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : ""}>{action?.kind}</Button>
+            ) : (
+              <Button disabled size="sm">Only Super Admin can act</Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

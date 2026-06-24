@@ -1,623 +1,600 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
-import { SmartShell as AppShell, SmartPageHeader as PageHeader } from "@/components/layout/smart-shell";
+import { useMemo, useState, useEffect, useRef } from "react";
+import { SmartShell as AppShell } from "@/components/layout/smart-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { DataTable } from "@/components/layout/data-table";
-import { ConfirmDelete } from "@/components/layout/confirm-delete";
 import { KpiCard } from "@/components/layout/kpi-card";
-import { BillManager } from "@/components/layout/bill-manager";
-import { FinanceReport } from "@/components/layout/finance-report";
 import {
-  Wallet, Plus, Pencil, Eye, FileText, Check, X,
-  Plane, Utensils, PenLine, Boxes, Car, Bike, Fuel,
-  Lock, Unlock, AlertTriangle, Download, Users,
+  Wallet, Plus, Save, Download, FileText,
+  Plane, Utensils, PenLine, Fuel, Boxes, Camera,
+  ChevronDown, Trash2, Eye, X,
 } from "lucide-react";
-import { useStore, newId, type Expense, type Bill, type FoodBill, type ReopenRequest } from "@/lib/store";
+import { useStore, newId, type Expense, type Bill, type FoodBill } from "@/lib/store";
 import { useAuth, isSuperAdmin, isClusterAdmin } from "@/lib/auth";
 import { inr } from "@/lib/format";
-import { downloadFinancePdf } from "@/lib/finance-pdf";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/finance")({
   head: () => ({ meta: [{ title: "Finance — TQI" }] }),
-  component: Page,
+  component: FinancePage,
 });
 
-const CATEGORIES = ["Travel", "Food", "Stationery", "Cab", "Auto", "Fuel", "Other"] as const;
-type Category = typeof CATEGORIES[number];
+type ExpenseCategory = "Travel" | "Food" | "Stationery" | "Fuel" | "Other";
+type FoodCategory = "Breakfast" | "Lunch" | "Dinner" | "Refreshments";
 
-const CAT_ICONS: Record<Category, any> = {
-  Travel: Plane, Food: Utensils, Stationery: PenLine,
-  Cab: Car, Auto: Bike, Fuel: Fuel, Other: Boxes,
-};
+const FOOD_CATEGORIES: FoodCategory[] = ["Breakfast", "Lunch", "Dinner", "Refreshments"];
 
-const FOOD_SUBS = ["Breakfast", "Lunch", "Dinner", "Refreshments"] as const;
-
-function blankBill(): Bill { return { id: newId(), name: "", url: "", type: "uploaded", amount: 0, remarks: "" }; }
-function blankFoodBill(sub: typeof FOOD_SUBS[number]): FoodBill {
-  return { subCategory: sub, bills: [blankBill()], volunteerCount: 0, remarks: "" };
+interface TravelEntry {
+  id: string;
+  from: string;
+  to: string;
+  volunteers: number;
+  amountPerPerson: number;
+  bills: Bill[];
 }
 
-type FormState = {
+interface FoodEntry {
+  id: string;
+  category: FoodCategory;
+  amount: number;
+  bills: Bill[];
+}
+
+interface FinanceFormState {
+  // Header - auto-filled
+  zone: string;
+  team: string;
+  clusterName: string;
+  sessionName: string;
   sessionDay: number;
   date: string;
-  category: Category;
-  // auto-filled
-  clusterName: string;
-  collegeName: string;
+  spocName: string;
   financerName: string;
-  submittedBy: string;
-  // Travel / Cab / Auto
-  travelFrom: string;
-  travelTo: string;
-  volunteerCount: number;
-  // Food
-  foodBills: FoodBill[];
-  // Stationery
-  itemName: string;
-  quantity: number;
-  // Fuel
-  fuelType: string;
-  litres: number;
-  vehicleNumber: string;
-  // Other
-  purpose: string;
-  description: string;
-  remarks: string;
-  // Bills (non-food)
-  bills: Bill[];
-};
 
-function blankForm(clusterName: string, collegeName: string, financerName: string, submittedBy: string): FormState {
+  // Manual entries
+  volunteersCount: number;
+
+  // Expenses
+  travelEntries: TravelEntry[];
+  foodEntries: FoodEntry[];
+  stationeryAmount: number;
+  stationeryBills: Bill[];
+  fuelAmount: number;
+  fuelBills: Bill[];
+  otherAmount: number;
+  otherBills: Bill[];
+}
+
+function blankForm(): FinanceFormState {
   return {
-    sessionDay: 1, date: new Date().toISOString().slice(0, 10), category: "Travel",
-    clusterName, collegeName, financerName, submittedBy,
-    travelFrom: "", travelTo: "", volunteerCount: 0,
-    foodBills: FOOD_SUBS.map(blankFoodBill),
-    itemName: "", quantity: 1,
-    fuelType: "Petrol", litres: 0, vehicleNumber: "",
-    purpose: "", description: "", remarks: "",
-    bills: [],
+    zone: "", team: "", clusterName: "", sessionName: "", sessionDay: 1,
+    date: new Date().toISOString().slice(0, 10), spocName: "", financerName: "",
+    volunteersCount: 0,
+    travelEntries: [], foodEntries: [], stationeryAmount: 0, stationeryBills: [],
+    fuelAmount: 0, fuelBills: [], otherAmount: 0, otherBills: [],
   };
 }
 
-function billsTotal(bills: Bill[]): number {
-  return bills.reduce((s, b) => s + Number(b.amount || 0), 0);
-}
-function foodTotal(foodBills: FoodBill[]): number {
-  return foodBills.reduce((s, fb) => s + billsTotal(fb.bills), 0);
-}
-function calcAmount(form: FormState): number {
-  if (form.category === "Food") return foodTotal(form.foodBills);
-  return billsTotal(form.bills);
-}
-
-function Page() {
+function FinancePage() {
   const s = useStore();
   const { user } = useAuth();
   const isSuper = isSuperAdmin(user?.role);
   const isCluster = isClusterAdmin(user?.role);
+  const myClusterId = user?.clusterId ?? "";
 
-  // Auto-fill values
-  const myCluster = s.clusters.find(c => c.id === user?.clusterId);
-  const myAdmin = s.admins.find(a => a.id === user?.id);
-  const defaultFinancer = s.financeSettings?.[0]?.defaultFinancerName ?? "TQI Finance Team";
-  const autoClusterName = myCluster?.name ?? "";
-  const autoCollegeName = myAdmin?.college ?? "";
-  const autoSubmittedBy = myAdmin?.name ?? user?.name ?? "";
+  const [form, setForm] = useState<FinanceFormState>(blankForm());
+  const [openForm, setOpenForm] = useState(false);
+  const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
+  const [billPreview, setBillPreview] = useState<Bill | null>(null);
+  const [expandedTravel, setExpandedTravel] = useState<string | null>(null);
+  const [expandedFood, setExpandedFood] = useState<string | null>(null);
 
-  // Dialogs
-  const [open, setOpen] = useState(false);
-  const [edit, setEdit] = useState<Expense | null>(null);
-  const [form, setForm] = useState<FormState>(blankForm(autoClusterName, autoCollegeName, defaultFinancer, autoSubmittedBy));
-  const [view, setView] = useState<Expense | null>(null);
-  const [pdfOpen, setPdfOpen] = useState(false);
-  const [reopenOpen, setReopenOpen] = useState(false);
-  const [reopenTarget, setReopenTarget] = useState<Expense | null>(null);
-  const [reopenReason, setReopenReason] = useState("");
+  // Auto-fill header
+  useEffect(() => {
+    const cluster = s.clusters.find(c => c.id === myClusterId);
+    const admin = s.admins.find(a => a.id === user?.id);
+    setForm(prev => ({
+      ...prev,
+      zone: cluster?.state ?? "",
+      team: cluster?.district ?? "",
+      clusterName: cluster?.name ?? "",
+      spocName: admin?.name ?? user?.name ?? "",
+      financerName: s.financeSettings?.[0]?.defaultFinancerName ?? "TQI Finance Team",
+    }));
+  }, [s.clusters, s.admins, s.financeSettings, myClusterId, user?.id, user?.name]);
+
+  // Session list
+  const sessions = useMemo(() =>
+    isCluster ? s.sessions.filter(ss => ss.clusterId === myClusterId) : s.sessions,
+    [s.sessions, isCluster, myClusterId]
+  );
 
   // Visible expenses
-  const visibleExpenses = useMemo(() =>
-    isCluster ? s.expenses.filter(e => e.clusterId === user?.clusterId) : s.expenses,
-    [s.expenses, isCluster, user?.clusterId]);
+  const expenses = useMemo(() =>
+    isCluster ? s.expenses.filter(e => e.clusterId === myClusterId) : s.expenses,
+    [s.expenses, isCluster, myClusterId]
+  );
 
-  // Totals
+  // Calculations
+  const calculateTravelTotal = (entries: TravelEntry[]) =>
+    entries.reduce((sum, e) => sum + (e.volunteers * e.amountPerPerson), 0);
+
+  const calculateFoodTotal = (entries: FoodEntry[]) =>
+    entries.reduce((sum, e) => sum + e.amount, 0);
+
   const totals = useMemo(() => {
-    const byCategory = (cat: Category) => visibleExpenses.filter(e => e.category === cat).reduce((a, b) => a + b.amount, 0);
-    return {
-      all: visibleExpenses.reduce((a, b) => a + b.amount, 0),
-      Travel: byCategory("Travel"), Food: byCategory("Food"),
-      Stationery: byCategory("Stationery"), Cab: byCategory("Cab"),
-      Auto: byCategory("Auto"), Fuel: byCategory("Fuel"), Other: byCategory("Other"),
-      pending: visibleExpenses.filter(e => e.status === "Pending").length,
-      volunteers: visibleExpenses.reduce((a, b) => a + (b.volunteerCount ?? 0), 0),
-    };
-  }, [visibleExpenses]);
+    const travel = calculateTravelTotal(form.travelEntries);
+    const food = calculateFoodTotal(form.foodEntries);
+    const stationery = form.stationeryAmount || 0;
+    const fuel = form.fuelAmount || 0;
+    const other = form.otherAmount || 0;
+    const grandTotal = travel + food + stationery + fuel + other;
+    return { travel, food, stationery, fuel, other, grandTotal };
+  }, [form.travelEntries, form.foodEntries, form.stationeryAmount, form.fuelAmount, form.otherAmount]);
 
-  const openCreate = () => {
-    if (!isCluster && !isSuper) return toast.error("Only Cluster Admin can create finance entries");
-    if (isSuper) return toast.error("Super Admin can only view finance entries");
-    setEdit(null);
-    setForm(blankForm(autoClusterName, autoCollegeName, defaultFinancer, autoSubmittedBy));
-    setOpen(true);
-  };
+  // Super Admin: view-only summary
+  if (isSuper) {
+    const allExpenses = s.expenses.reduce((sum, e) => sum + e.amount, 0);
+    const byCluster = s.clusters.map(c => ({
+      name: c.name,
+      total: s.expenses.filter(e => e.clusterId === c.id).reduce((sum, e) => sum + e.amount, 0),
+      count: s.expenses.filter(e => e.clusterId === c.id).length,
+    }));
 
-  const openEdit = (e: Expense) => {
-    if (isSuper) return toast.error("Super Admin cannot edit finance entries");
-    if (e.status === "Locked") {
-      toast.error("This entry is locked. Request reopen to edit.");
-      return;
-    }
-    setEdit(e);
-    setForm({
-      sessionDay: e.sessionDay ?? 1,
-      date: e.date,
-      category: (e.category as Category) ?? "Travel",
-      clusterName: e.clusterName ?? autoClusterName,
-      collegeName: e.collegeName ?? autoCollegeName,
-      financerName: e.financerName ?? defaultFinancer,
-      submittedBy: e.submittedBy,
-      travelFrom: e.travelFrom ?? "",
-      travelTo: e.travelTo ?? "",
-      volunteerCount: e.volunteerCount ?? 0,
-      foodBills: (e.foodBills && e.foodBills.length > 0) ? e.foodBills : FOOD_SUBS.map(blankFoodBill),
-      itemName: (e as any).itemName ?? "",
-      quantity: (e as any).quantity ?? 1,
-      fuelType: (e as any).fuelType ?? "Petrol",
-      litres: (e as any).litres ?? 0,
-      vehicleNumber: (e as any).vehicleNumber ?? "",
-      purpose: (e as any).purpose ?? "",
-      description: e.description ?? "",
-      remarks: e.remarks ?? "",
-      bills: e.bills,
-    });
-    setOpen(true);
-  };
-
-  const save = async () => {
-    if (!form.sessionDay) return toast.error("Session day is required");
-    if (!form.date) return toast.error("Date is required");
-    const amount = calcAmount(form);
-    try {
-      const payload: any = {
-        id: edit?.id ?? newId(),
-        sessionDay: form.sessionDay,
-        date: form.date,
-        category: form.category,
-        clusterName: form.clusterName,
-        collegeName: form.collegeName,
-        financerName: form.financerName,
-        submittedBy: form.submittedBy,
-        clusterId: user?.clusterId,
-        amount,
-        status: edit?.status ?? "Pending",
-        bills: form.category === "Food" ? form.foodBills.flatMap(fb => fb.bills) : form.bills,
-        foodBills: form.category === "Food" ? form.foodBills : undefined,
-        travelFrom: ["Travel","Cab","Auto"].includes(form.category) ? form.travelFrom : undefined,
-        travelTo: ["Travel","Cab","Auto"].includes(form.category) ? form.travelTo : undefined,
-        volunteerCount: ["Travel","Cab","Auto","Food"].includes(form.category) ? form.volunteerCount : undefined,
-        itemName: form.category === "Stationery" ? form.itemName : undefined,
-        quantity: form.category === "Stationery" ? form.quantity : undefined,
-        fuelType: form.category === "Fuel" ? form.fuelType : undefined,
-        litres: form.category === "Fuel" ? form.litres : undefined,
-        vehicleNumber: form.category === "Fuel" ? form.vehicleNumber : undefined,
-        purpose: form.category === "Other" ? form.purpose : undefined,
-        description: form.description,
-        remarks: form.remarks,
-      };
-      await s.upsert("expenses", payload);
-      toast.success(edit ? "Updated" : "Finance entry saved");
-      setOpen(false);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Save failed");
-    }
-  };
-
-  const setStatus = (id: string, status: Expense["status"]) => {
-    s.patch("expenses", id, { status });
-    toast.success(`Marked ${status}`);
-  };
-
-  const submitReopen = async () => {
-    if (!reopenTarget) return;
-    if (!reopenReason.trim()) return toast.error("Reason is required");
-    const req: ReopenRequest = {
-      id: newId(),
-      clusterId: user?.clusterId ?? "",
-      sessionDay: reopenTarget.sessionDay,
-      reason: reopenReason,
-      requestedBy: autoSubmittedBy,
-      requestDate: new Date().toISOString().slice(0, 10),
-      status: "Pending",
-    };
-    await s.upsert("reopenRequests", req);
-    toast.success("Reopen request submitted");
-    setReopenOpen(false);
-    setReopenReason("");
-  };
-
-  // ── JSX ──
-  return (
-    <AppShell>
-      <PageHeader
-        title="Finance"
-        description={isCluster ? "Create and submit finance entries for your cluster." : "View and approve cluster finance entries."}
-        actions={
-          <div className="flex flex-wrap gap-2">
-            {isCluster && <Button onClick={openCreate}><Plus className="h-4 w-4" /> Add Expense</Button>}
-            <Button variant="outline" onClick={() => setPdfOpen(true)}><FileText className="h-4 w-4" /> PDF</Button>
+    return (
+      <AppShell>
+        <div className="px-6 py-6">
+          <h1 className="text-2xl font-bold mb-4">Finance — Summary (Super Admin View Only)</h1>
+          <div className="grid gap-4 md:grid-cols-4 mb-6">
+            <KpiCard label="Total Finance" value={inr(allExpenses)} icon={Wallet} tone="primary" />
+            <KpiCard label="Clusters Submitted" value={byCluster.filter(c => c.total > 0).length} icon={Plane} tone="success" />
+            <KpiCard label="Total Entries" value={s.expenses.length} icon={FileText} tone="info" />
           </div>
-        }
-      />
 
-      {/* KPI Cards */}
-      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
-        <KpiCard label="Total" value={inr(totals.all)} icon={Wallet} tone="primary" />
-        <KpiCard label="Travel" value={inr(totals.Travel)} icon={Plane} tone="info" />
-        <KpiCard label="Food" value={inr(totals.Food)} icon={Utensils} tone="secondary" />
-        <KpiCard label="Stationery" value={inr(totals.Stationery)} icon={PenLine} tone="success" />
-        <KpiCard label="Cab" value={inr(totals.Cab)} icon={Car} tone="info" />
-        <KpiCard label="Auto" value={inr(totals.Auto)} icon={Bike} tone="secondary" />
-        <KpiCard label="Fuel" value={inr(totals.Fuel)} icon={Fuel} tone="warning" />
-        <KpiCard label="Other" value={inr(totals.Other)} icon={Boxes} tone="default" />
-      </div>
-
-      {/* Finance Timeline */}
-      <Card className="mb-4 shadow-card">
-        <CardHeader><CardTitle className="text-base">Finance Timeline</CardTitle></CardHeader>
-        <CardContent>
-          <div className="grid gap-3 md:grid-cols-5">
-            {[
-              { label: "Advance Received", val: inr(s.advances.reduce((a,b)=>a+b.amount,0)), color: "bg-info text-info-foreground" },
-              { label: "Expense Submitted", val: inr(totals.all), color: "bg-primary text-primary-foreground" },
-              { label: "Finance Approved", val: inr(visibleExpenses.filter(e=>e.status==="Approved").reduce((a,b)=>a+b.amount,0)), color: "bg-success text-success-foreground" },
-              { label: "Refund Received", val: inr(s.refunds.reduce((a,b)=>a+b.amount,0)), color: "bg-secondary text-secondary-foreground" },
-              { label: "Volunteers Benefited", val: totals.volunteers, color: "bg-muted text-foreground" },
-            ].map((step, i) => (
-              <div key={i} className="relative rounded-lg border border-border p-3">
-                <div className={`mb-2 inline-grid h-7 w-7 place-items-center rounded-full text-xs font-bold ${step.color}`}>{i+1}</div>
-                <div className="text-xs text-muted-foreground">{step.label}</div>
-                <div className="text-lg font-bold">{step.val}</div>
-              </div>
+          <div className="grid gap-4">
+            {byCluster.map(cluster => (
+              <Card key={cluster.name}>
+                <CardHeader>
+                  <CardTitle className="text-base">{cluster.name}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex justify-between">
+                    <span className="text-sm text-muted-foreground">Total Expenses</span>
+                    <span className="font-semibold">{inr(cluster.total)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Entries</span>
+                    <span>{cluster.count}</span>
+                  </div>
+                </CardContent>
+              </Card>
             ))}
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </AppShell>
+    );
+  }
 
-      {/* Reopen Requests — Super Admin */}
-      {isSuper && s.reopenRequests?.filter(r => r.status === "Pending").length > 0 && (
-        <Card className="mb-4 shadow-card border-yellow-200">
-          <CardHeader><CardTitle className="text-base flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-yellow-600" /> Reopen Requests ({s.reopenRequests.filter(r=>r.status==="Pending").length})</CardTitle></CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {s.reopenRequests.filter(r=>r.status==="Pending").map(req => (
-                <div key={req.id} className="flex items-center justify-between rounded-lg border border-border p-3 text-sm">
-                  <div>
-                    <div className="font-medium">Day {req.sessionDay} — {s.clusters.find(c=>c.id===req.clusterId)?.name ?? req.clusterId}</div>
-                    <div className="text-xs text-muted-foreground mt-0.5">Reason: {req.reason} · By: {req.requestedBy} · {req.requestDate}</div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button size="sm" className="h-7 bg-success text-success-foreground" onClick={() => { s.patch("reopenRequests", req.id, { status: "Approved", approvedUntil: new Date(Date.now()+86400000).toISOString().slice(0,10) }); toast.success("Reopen approved — unlocked for 24h"); }}>
-                      <Check className="h-3 w-3 mr-1" /> Approve
-                    </Button>
-                    <Button size="sm" variant="destructive" className="h-7" onClick={() => { s.patch("reopenRequests", req.id, { status: "Rejected" }); toast.success("Rejected"); }}>
-                      <X className="h-3 w-3 mr-1" /> Reject
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+  // Cluster Admin: Edit form
+  if (!isCluster) {
+    return (
+      <AppShell>
+        <div className="px-6 py-6 text-center text-muted-foreground">
+          <p>Only Cluster Admin can manage finance entries.</p>
+        </div>
+      </AppShell>
+    );
+  }
 
-      {/* Expenses Table */}
-      <DataTable
-        exportName="expenses"
-        rows={visibleExpenses}
-        searchKeys={["submittedBy", "clusterName", "description"] as any}
-        columns={[
-          { key: "sessionDay", header: "Day", render: (r) => <Badge variant="outline">Day {(r as any).sessionDay ?? "—"}</Badge> },
-          { key: "date", header: "Date" },
-          { key: "category", header: "Category", render: (r) => { const Icon = CAT_ICONS[r.category as Category] ?? Boxes; return <Badge variant="outline" className="gap-1"><Icon className="h-3 w-3" />{r.category}</Badge>; } },
-          { key: "clusterName", header: "Cluster", render: (r) => <span className="text-sm">{(r as any).clusterName ?? "—"}</span> },
-          { key: "amount", header: "Amount", render: (r) => <b>{inr(r.amount)}</b> },
-          { key: "submittedBy", header: "By" },
-          { key: "bills", header: "Bills", render: (r) => <Badge>{r.bills.length}</Badge> },
-          { key: "status", header: "Status", render: (r) =>
-            r.status === "Approved" ? <Badge className="bg-success text-success-foreground">Approved</Badge> :
-            r.status === "Rejected" ? <Badge variant="destructive">Rejected</Badge> :
-            r.status === "Locked" ? <Badge variant="secondary"><Lock className="h-3 w-3 mr-1" />Locked</Badge> :
-            <Badge variant="outline">Pending</Badge>
-          },
-          { key: "_act", header: "", className: "text-right", render: (r) => (
-            <div className="flex justify-end gap-1">
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setView(r)}><Eye className="h-4 w-4" /></Button>
-              {isSuper && r.status === "Pending" && <>
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-success" onClick={() => setStatus(r.id, "Approved")}><Check className="h-4 w-4" /></Button>
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setStatus(r.id, "Rejected")}><X className="h-4 w-4" /></Button>
-              </>}
-              {isCluster && r.status !== "Locked" && <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(r)}><Pencil className="h-4 w-4" /></Button>}
-              {isCluster && r.status === "Locked" && <Button variant="ghost" size="icon" className="h-8 w-8 text-yellow-600" onClick={() => { setReopenTarget(r); setReopenOpen(true); }}><Unlock className="h-4 w-4" /></Button>}
-              {isCluster && r.status !== "Locked" && <ConfirmDelete onConfirm={() => { s.remove("expenses", r.id); toast.success("Deleted"); }} />}
-            </div>
-          ) },
-        ]}
-      />
+  const handleAddTravelEntry = () => {
+    setForm(prev => ({
+      ...prev,
+      travelEntries: [...prev.travelEntries, { id: newId(), from: "", to: "", volunteers: 0, amountPerPerson: 0, bills: [] }],
+    }));
+  };
 
-      {/* ── Add / Edit Dialog ── */}
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{edit ? "Edit" : "Add"} Finance Entry</DialogTitle>
-            <DialogDescription>All auto-filled fields are read-only.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
+  const handleRemoveTravelEntry = (id: string) => {
+    setForm(prev => ({
+      ...prev,
+      travelEntries: prev.travelEntries.filter(e => e.id !== id),
+    }));
+  };
 
-            {/* Top fields */}
-            <div className="grid gap-3 sm:grid-cols-2 rounded-lg border border-border bg-muted/30 p-3">
-              <p className="text-xs font-semibold text-muted-foreground uppercase sm:col-span-2">Session & Date</p>
-              <div>
-                <Label>Session Day <span className="text-destructive">*</span></Label>
-                <Select value={String(form.sessionDay)} onValueChange={(v) => setForm({...form, sessionDay: +v})}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>{Array.from({length:8},(_,i)=>i+1).map(d=><SelectItem key={d} value={String(d)}>Day {d}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Date <span className="text-destructive">*</span></Label>
-                <Input type="date" value={form.date} onChange={(e)=>setForm({...form,date:e.target.value})} />
-              </div>
-            </div>
+  const handleAddFoodEntry = (category: FoodCategory) => {
+    setForm(prev => ({
+      ...prev,
+      foodEntries: [...prev.foodEntries, { id: newId(), category, amount: 0, bills: [] }],
+    }));
+  };
 
-            {/* Auto-filled */}
-            <div className="grid gap-3 sm:grid-cols-2 rounded-lg border border-border bg-primary/5 p-3">
-              <p className="text-xs font-semibold text-primary uppercase sm:col-span-2">Auto-filled Fields (read-only)</p>
-              <div><Label>Cluster Name</Label><Input readOnly value={form.clusterName} className="bg-muted" /></div>
-              <div><Label>College Name</Label><Input readOnly value={form.collegeName} className="bg-muted" placeholder="—" /></div>
-              <div><Label>Financer Name</Label><Input readOnly value={form.financerName} className="bg-muted" /></div>
-              <div><Label>Submitted By</Label><Input readOnly value={form.submittedBy} className="bg-muted" /></div>
-            </div>
+  const handleRemoveFoodEntry = (id: string) => {
+    setForm(prev => ({
+      ...prev,
+      foodEntries: prev.foodEntries.filter(e => e.id !== id),
+    }));
+  };
 
-            {/* Category */}
-            <div>
-              <Label>Expense Category <span className="text-destructive">*</span></Label>
-              <Select value={form.category} onValueChange={(v)=>setForm({...form,category:v as Category,bills:[],foodBills:FOOD_SUBS.map(blankFoodBill)})}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{CATEGORIES.map(c=><SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
+  const handleSave = async () => {
+    if (!form.sessionDay || !form.date) return toast.error("Session and date required");
+    if (totals.grandTotal === 0) return toast.error("Add at least one expense");
 
-            {/* Travel / Cab / Auto */}
-            {["Travel","Cab","Auto"].includes(form.category) && (
-              <div className="rounded-lg border border-border p-3 space-y-3">
-                <p className="text-xs font-semibold uppercase text-muted-foreground">{form.category} Details</p>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div><Label>From</Label><Input value={form.travelFrom} onChange={(e)=>setForm({...form,travelFrom:e.target.value})} placeholder="Origin" /></div>
-                  <div><Label>To</Label><Input value={form.travelTo} onChange={(e)=>setForm({...form,travelTo:e.target.value})} placeholder="Destination" /></div>
-                  <div><Label>No. of Volunteers</Label><Input type="number" min={0} value={form.volunteerCount} onChange={(e)=>setForm({...form,volunteerCount:+e.target.value})} /></div>
-                  <div><Label>Remarks</Label><Input value={form.remarks} onChange={(e)=>setForm({...form,remarks:e.target.value})} /></div>
+    const expense: Expense = {
+      id: editingExpenseId || newId(),
+      sessionDay: form.sessionDay,
+      date: form.date,
+      clusterId: myClusterId,
+      clusterName: form.clusterName,
+      collegeName: "",
+      financerName: form.financerName,
+      submittedBy: form.spocName,
+      category: "Travel", // aggregate
+      amount: totals.grandTotal,
+      status: "Pending",
+      bills: [],
+      volunteerCount: form.volunteersCount,
+    };
+
+    await s.upsert("expenses", expense);
+    toast.success(editingExpenseId ? "Finance entry updated" : "Finance entry saved");
+    setOpenForm(false);
+    setEditingExpenseId(null);
+    setForm(blankForm());
+  };
+
+  const handleExportPDF = () => {
+    toast.success("PDF export coming soon");
+  };
+
+  return (
+    <AppShell>
+      <div className="px-6 py-6">
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-2xl font-bold">Finance — Day {form.sessionDay}</h1>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={handleExportPDF}>
+              <Download className="h-4 w-4 mr-2" /> Export PDF
+            </Button>
+            <Button size="sm" onClick={() => setOpenForm(true)}>
+              <Plus className="h-4 w-4 mr-2" /> New Entry
+            </Button>
+          </div>
+        </div>
+
+        {/* KPI Cards */}
+        <div className="grid gap-4 md:grid-cols-5 mb-6">
+          <KpiCard label="Travel" value={inr(totals.travel)} icon={Plane} tone="primary" />
+          <KpiCard label="Food" value={inr(totals.food)} icon={Utensils} tone="success" />
+          <KpiCard label="Stationery" value={inr(totals.stationery)} icon={PenLine} tone="info" />
+          <KpiCard label="Fuel" value={inr(totals.fuel)} icon={Fuel} tone="warning" />
+          <KpiCard label="Grand Total" value={inr(totals.grandTotal)} icon={Wallet} tone="primary" />
+        </div>
+
+        {/* Form Dialog */}
+        <Dialog open={openForm} onOpenChange={setOpenForm}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Finance Entry — {form.clusterName}</DialogTitle>
+            </DialogHeader>
+
+            {/* Header Section */}
+            <div className="grid gap-4 bg-slate-50 p-4 rounded-lg mb-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-xs">Zone</Label>
+                  <div className="text-sm font-medium mt-1">{form.zone}</div>
                 </div>
                 <div>
-                  <Label>Bills (unlimited) — Grand Total: <b>{inr(billsTotal(form.bills))}</b></Label>
-                  <div className="mt-2 space-y-2">
-                    {form.bills.map((bill,idx)=>(
-                      <div key={bill.id} className="rounded-md border border-border p-2 space-y-2">
-                        <div className="flex items-center justify-between text-xs font-semibold text-muted-foreground">
-                          <span>Bill {idx+1}</span>
-                          <button type="button" onClick={()=>setForm({...form,bills:form.bills.filter((_,i)=>i!==idx)})} className="text-destructive hover:underline">Delete</button>
-                        </div>
-                        <div className="grid gap-2 sm:grid-cols-2">
-                          <div><Label className="text-xs">Amount (₹) *</Label><Input type="number" min={0} value={bill.amount||""} onChange={(e)=>{const b=[...form.bills];b[idx]={...b[idx],amount:+e.target.value};setForm({...form,bills:b});}} /></div>
-                          <div><Label className="text-xs">Remarks</Label><Input value={bill.remarks||""} onChange={(e)=>{const b=[...form.bills];b[idx]={...b[idx],remarks:e.target.value};setForm({...form,bills:b});}} /></div>
-                          <div><Label className="text-xs">Vendor (optional)</Label><Input value={bill.vendorName||""} onChange={(e)=>{const b=[...form.bills];b[idx]={...b[idx],vendorName:e.target.value};setForm({...form,bills:b});}} /></div>
-                          <div><Label className="text-xs">Bill No. (optional)</Label><Input value={bill.billNumber||""} onChange={(e)=>{const b=[...form.bills];b[idx]={...b[idx],billNumber:e.target.value};setForm({...form,bills:b});}} /></div>
-                        </div>
-                        <BillManager bills={bill.url?[bill]:[]} onChange={(bs)=>{const b=[...form.bills];b[idx]={...b[idx],...(bs[bs.length-1]??{}),amount:b[idx].amount,remarks:b[idx].remarks};setForm({...form,bills:b});}} />
-                      </div>
-                    ))}
-                    <Button type="button" variant="outline" size="sm" onClick={()=>setForm({...form,bills:[...form.bills,blankBill()]})}><Plus className="h-3 w-3 mr-1"/>Add Bill</Button>
-                  </div>
+                  <Label className="text-xs">Team</Label>
+                  <div className="text-sm font-medium mt-1">{form.team}</div>
+                </div>
+                <div>
+                  <Label className="text-xs">Cluster</Label>
+                  <div className="text-sm font-medium mt-1">{form.clusterName}</div>
+                </div>
+                <div>
+                  <Label className="text-xs">Session Day</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="8"
+                    value={form.sessionDay}
+                    onChange={(e) => setForm(prev => ({ ...prev, sessionDay: parseInt(e.target.value) || 1 }))}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Date</Label>
+                  <Input
+                    type="date"
+                    value={form.date}
+                    onChange={(e) => setForm(prev => ({ ...prev, date: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">SPOC Name</Label>
+                  <div className="text-sm font-medium mt-1">{form.spocName}</div>
+                </div>
+                <div>
+                  <Label className="text-xs">Financer Name</Label>
+                  <div className="text-sm font-medium mt-1">{form.financerName}</div>
+                </div>
+                <div>
+                  <Label className="text-xs">No Of Volunteers</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={form.volunteersCount}
+                    onChange={(e) => setForm(prev => ({ ...prev, volunteersCount: parseInt(e.target.value) || 0 }))}
+                  />
                 </div>
               </div>
-            )}
+            </div>
 
-            {/* Food */}
-            {form.category === "Food" && (
-              <div className="rounded-lg border border-border p-3 space-y-4">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold uppercase text-muted-foreground">Food & Refreshments</p>
-                  <span className="text-sm font-bold">Grand Total: {inr(foodTotal(form.foodBills))}</span>
-                </div>
-                <div><Label>No. of Volunteers Served</Label><Input type="number" min={0} value={form.volunteerCount} onChange={(e)=>setForm({...form,volunteerCount:+e.target.value})} className="w-32" /></div>
-                {form.foodBills.map((fb,fi)=>(
-                  <div key={fi} className="rounded-md border border-border bg-muted/20 p-3 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-semibold">{fb.subCategory}</span>
-                      <span className="text-xs text-muted-foreground">Subtotal: {inr(billsTotal(fb.bills))}</span>
-                    </div>
-                    {fb.bills.map((bill,bi)=>(
-                      <div key={bill.id} className="rounded border border-border p-2 space-y-2">
-                        <div className="flex justify-between text-xs text-muted-foreground">
-                          <span>Bill {bi+1}</span>
-                          {fb.bills.length>1&&<button type="button" onClick={()=>{const f=[...form.foodBills];f[fi]={...f[fi],bills:f[fi].bills.filter((_,i)=>i!==bi)};setForm({...form,foodBills:f});}} className="text-destructive hover:underline">Delete</button>}
+            {/* Expense Sections */}
+            <Tabs defaultValue="travel" className="w-full">
+              <TabsList className="grid w-full grid-cols-5">
+                <TabsTrigger value="travel">Travel</TabsTrigger>
+                <TabsTrigger value="food">Food</TabsTrigger>
+                <TabsTrigger value="stationery">Stationery</TabsTrigger>
+                <TabsTrigger value="fuel">Fuel</TabsTrigger>
+                <TabsTrigger value="other">Other</TabsTrigger>
+              </TabsList>
+
+              {/* TRAVEL */}
+              <TabsContent value="travel" className="space-y-4">
+                {form.travelEntries.map(entry => (
+                  <Card key={entry.id}>
+                    <CardHeader className="flex flex-row items-center justify-between">
+                      <CardTitle className="text-sm">{entry.from} → {entry.to || "..."}</CardTitle>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleRemoveTravelEntry(entry.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <Label className="text-xs">From</Label>
+                          <Input
+                            placeholder="e.g. KSR"
+                            value={entry.from}
+                            onChange={(e) => setForm(prev => ({
+                              ...prev,
+                              travelEntries: prev.travelEntries.map(t =>
+                                t.id === entry.id ? { ...t, from: e.target.value } : t
+                              ),
+                            }))}
+                          />
                         </div>
-                        <div className="grid gap-2 sm:grid-cols-2">
-                          <div><Label className="text-xs">Amount (₹) *</Label><Input type="number" min={0} value={bill.amount||""} onChange={(e)=>{const f=[...form.foodBills];const b=[...f[fi].bills];b[bi]={...b[bi],amount:+e.target.value};f[fi]={...f[fi],bills:b};setForm({...form,foodBills:f});}} /></div>
-                          <div><Label className="text-xs">Hotel (optional)</Label><Input value={bill.hotelName||""} onChange={(e)=>{const f=[...form.foodBills];const b=[...f[fi].bills];b[bi]={...b[bi],hotelName:e.target.value};f[fi]={...f[fi],bills:b};setForm({...form,foodBills:f});}} /></div>
+                        <div>
+                          <Label className="text-xs">To</Label>
+                          <Input
+                            placeholder="e.g. Salem"
+                            value={entry.to}
+                            onChange={(e) => setForm(prev => ({
+                              ...prev,
+                              travelEntries: prev.travelEntries.map(t =>
+                                t.id === entry.id ? { ...t, to: e.target.value } : t
+                              ),
+                            }))}
+                          />
                         </div>
-                        <BillManager bills={bill.url?[bill]:[]} onChange={(bs)=>{const f=[...form.foodBills];const b=[...f[fi].bills];b[bi]={...b[bi],...(bs[bs.length-1]??{}),amount:b[bi].amount};f[fi]={...f[fi],bills:b};setForm({...form,foodBills:f});}} />
+                        <div>
+                          <Label className="text-xs">Volunteers</Label>
+                          <Input
+                            type="number"
+                            min="0"
+                            value={entry.volunteers}
+                            onChange={(e) => setForm(prev => ({
+                              ...prev,
+                              travelEntries: prev.travelEntries.map(t =>
+                                t.id === entry.id ? { ...t, volunteers: parseInt(e.target.value) || 0 } : t
+                              ),
+                            }))}
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Amount Per Person</Label>
+                          <Input
+                            type="number"
+                            min="0"
+                            value={entry.amountPerPerson}
+                            onChange={(e) => setForm(prev => ({
+                              ...prev,
+                              travelEntries: prev.travelEntries.map(t =>
+                                t.id === entry.id ? { ...t, amountPerPerson: parseInt(e.target.value) || 0 } : t
+                              ),
+                            }))}
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Auto Calc</Label>
+                          <div className="text-sm font-semibold bg-blue-50 p-2 rounded">
+                            {entry.volunteers} × {entry.amountPerPerson} = {entry.volunteers * entry.amountPerPerson}
+                          </div>
+                        </div>
                       </div>
-                    ))}
-                    <Button type="button" variant="outline" size="sm" onClick={()=>{const f=[...form.foodBills];f[fi]={...f[fi],bills:[...f[fi].bills,blankBill()]};setForm({...form,foodBills:f});}}><Plus className="h-3 w-3 mr-1"/>Add Bill</Button>
+                      <Button variant="outline" size="sm" className="w-full">
+                        <Camera className="h-4 w-4 mr-2" /> Scan Bill
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ))}
+                <Button variant="outline" className="w-full" onClick={handleAddTravelEntry}>
+                  <Plus className="h-4 w-4 mr-2" /> Add Travel Entry
+                </Button>
+              </TabsContent>
+
+              {/* FOOD */}
+              <TabsContent value="food" className="space-y-4">
+                {FOOD_CATEGORIES.map(cat => (
+                  <Card key={cat}>
+                    <CardHeader>
+                      <CardTitle className="text-sm">{cat}</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="flex gap-2">
+                        <Input
+                          type="number"
+                          min="0"
+                          placeholder="Amount"
+                          value={form.foodEntries.find(f => f.category === cat)?.amount || 0}
+                          onChange={(e) => setForm(prev => {
+                            const existing = prev.foodEntries.find(f => f.category === cat);
+                            if (existing) {
+                              return {
+                                ...prev,
+                                foodEntries: prev.foodEntries.map(f =>
+                                  f.id === existing.id ? { ...f, amount: parseInt(e.target.value) || 0 } : f
+                                ),
+                              };
+                            } else {
+                              return {
+                                ...prev,
+                                foodEntries: [...prev.foodEntries, { id: newId(), category: cat, amount: parseInt(e.target.value) || 0, bills: [] }],
+                              };
+                            }
+                          })}
+                        />
+                        <Button variant="outline" size="sm">
+                          <Camera className="h-4 w-4 mr-2" /> Scan Bill
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </TabsContent>
+
+              {/* STATIONERY */}
+              <TabsContent value="stationery">
+                <Card>
+                  <CardContent className="pt-6 space-y-3">
+                    <div>
+                      <Label>Amount</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        value={form.stationeryAmount}
+                        onChange={(e) => setForm(prev => ({ ...prev, stationeryAmount: parseInt(e.target.value) || 0 }))}
+                      />
+                    </div>
+                    <Button variant="outline" className="w-full">
+                      <Camera className="h-4 w-4 mr-2" /> Scan Bill
+                    </Button>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              {/* FUEL */}
+              <TabsContent value="fuel">
+                <Card>
+                  <CardContent className="pt-6 space-y-3">
+                    <div>
+                      <Label>Amount</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        value={form.fuelAmount}
+                        onChange={(e) => setForm(prev => ({ ...prev, fuelAmount: parseInt(e.target.value) || 0 }))}
+                      />
+                    </div>
+                    <Button variant="outline" className="w-full">
+                      <Camera className="h-4 w-4 mr-2" /> Scan Bill
+                    </Button>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              {/* OTHER */}
+              <TabsContent value="other">
+                <Card>
+                  <CardContent className="pt-6 space-y-3">
+                    <div>
+                      <Label>Amount</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        value={form.otherAmount}
+                        onChange={(e) => setForm(prev => ({ ...prev, otherAmount: parseInt(e.target.value) || 0 }))}
+                      />
+                    </div>
+                    <Button variant="outline" className="w-full">
+                      <Camera className="h-4 w-4 mr-2" /> Scan Bill
+                    </Button>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
+
+            {/* Totals */}
+            <div className="bg-blue-50 p-4 rounded-lg space-y-2 border-2 border-blue-200">
+              <div className="flex justify-between text-sm">
+                <span>Travel Expenses</span>
+                <span className="font-semibold">{inr(totals.travel)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span>Food Expenses</span>
+                <span className="font-semibold">{inr(totals.food)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span>Stationery Expenses</span>
+                <span className="font-semibold">{inr(totals.stationery)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span>Fuel Expenses</span>
+                <span className="font-semibold">{inr(totals.fuel)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span>Other Expenses</span>
+                <span className="font-semibold">{inr(totals.other)}</span>
+              </div>
+              <div className="border-t pt-2 flex justify-between font-bold text-base">
+                <span>Grand Total</span>
+                <span className="text-blue-600">{inr(totals.grandTotal)}</span>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setOpenForm(false)}>Cancel</Button>
+              <Button onClick={handleSave}>
+                <Save className="h-4 w-4 mr-2" /> Save Finance Entry
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Entries List */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Submitted Entries</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {expenses.length === 0 ? (
+              <div className="text-center text-muted-foreground py-8">No entries yet</div>
+            ) : (
+              <div className="space-y-2">
+                {expenses.map(exp => (
+                  <div key={exp.id} className="flex items-center justify-between p-3 border rounded-lg">
+                    <div>
+                      <div className="font-medium">Day {exp.sessionDay} — {exp.date}</div>
+                      <div className="text-sm text-muted-foreground">{inr(exp.amount)}</div>
+                    </div>
+                    <Button variant="ghost" size="sm">
+                      <Eye className="h-4 w-4" />
+                    </Button>
                   </div>
                 ))}
               </div>
             )}
-
-            {/* Stationery */}
-            {form.category === "Stationery" && (
-              <div className="rounded-lg border border-border p-3 space-y-3">
-                <p className="text-xs font-semibold uppercase text-muted-foreground">Stationery Details</p>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div><Label>Item Name</Label><Input value={form.itemName} onChange={(e)=>setForm({...form,itemName:e.target.value})} /></div>
-                  <div><Label>Quantity</Label><Input type="number" min={1} value={form.quantity} onChange={(e)=>setForm({...form,quantity:+e.target.value})} /></div>
-                  <div className="sm:col-span-2"><Label>Remarks</Label><Input value={form.remarks} onChange={(e)=>setForm({...form,remarks:e.target.value})} /></div>
-                </div>
-                <Label>Bills — Grand Total: <b>{inr(billsTotal(form.bills))}</b></Label>
-                <div className="space-y-2">
-                  {form.bills.map((bill,idx)=>(
-                    <div key={bill.id} className="rounded-md border border-border p-2 space-y-2">
-                      <div className="flex justify-between text-xs text-muted-foreground"><span>Bill {idx+1}</span><button type="button" onClick={()=>setForm({...form,bills:form.bills.filter((_,i)=>i!==idx)})} className="text-destructive hover:underline">Delete</button></div>
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        <div><Label className="text-xs">Amount (₹) *</Label><Input type="number" min={0} value={bill.amount||""} onChange={(e)=>{const b=[...form.bills];b[idx]={...b[idx],amount:+e.target.value};setForm({...form,bills:b});}} /></div>
-                        <div><Label className="text-xs">Vendor (optional)</Label><Input value={bill.vendorName||""} onChange={(e)=>{const b=[...form.bills];b[idx]={...b[idx],vendorName:e.target.value};setForm({...form,bills:b});}} /></div>
-                      </div>
-                      <BillManager bills={bill.url?[bill]:[]} onChange={(bs)=>{const b=[...form.bills];b[idx]={...b[idx],...(bs[bs.length-1]??{}),amount:b[idx].amount};setForm({...form,bills:b});}} />
-                    </div>
-                  ))}
-                  <Button type="button" variant="outline" size="sm" onClick={()=>setForm({...form,bills:[...form.bills,blankBill()]})}><Plus className="h-3 w-3 mr-1"/>Add Bill</Button>
-                </div>
-              </div>
-            )}
-
-            {/* Fuel */}
-            {form.category === "Fuel" && (
-              <div className="rounded-lg border border-border p-3 space-y-3">
-                <p className="text-xs font-semibold uppercase text-muted-foreground">Fuel Details</p>
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div><Label>Fuel Type</Label>
-                    <Select value={form.fuelType} onValueChange={(v)=>setForm({...form,fuelType:v})}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>{["Petrol","Diesel","CNG","Electric"].map(f=><SelectItem key={f} value={f}>{f}</SelectItem>)}</SelectContent>
-                    </Select>
-                  </div>
-                  <div><Label>Litres</Label><Input type="number" min={0} step={0.1} value={form.litres} onChange={(e)=>setForm({...form,litres:+e.target.value})} /></div>
-                  <div><Label>Vehicle No. (optional)</Label><Input value={form.vehicleNumber} onChange={(e)=>setForm({...form,vehicleNumber:e.target.value})} /></div>
-                  <div className="sm:col-span-3"><Label>Remarks</Label><Input value={form.remarks} onChange={(e)=>setForm({...form,remarks:e.target.value})} /></div>
-                </div>
-                <Label>Bills — Grand Total: <b>{inr(billsTotal(form.bills))}</b></Label>
-                <div className="space-y-2">
-                  {form.bills.map((bill,idx)=>(
-                    <div key={bill.id} className="rounded-md border border-border p-2 space-y-2">
-                      <div className="flex justify-between text-xs"><span>Bill {idx+1}</span><button type="button" onClick={()=>setForm({...form,bills:form.bills.filter((_,i)=>i!==idx)})} className="text-destructive hover:underline text-xs">Delete</button></div>
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        <div><Label className="text-xs">Amount (₹) *</Label><Input type="number" value={bill.amount||""} onChange={(e)=>{const b=[...form.bills];b[idx]={...b[idx],amount:+e.target.value};setForm({...form,bills:b});}} /></div>
-                        <div><Label className="text-xs">Vehicle No.</Label><Input value={bill.vehicleNumber||""} onChange={(e)=>{const b=[...form.bills];b[idx]={...b[idx],vehicleNumber:e.target.value};setForm({...form,bills:b});}} /></div>
-                      </div>
-                      <BillManager bills={bill.url?[bill]:[]} onChange={(bs)=>{const b=[...form.bills];b[idx]={...b[idx],...(bs[bs.length-1]??{}),amount:b[idx].amount};setForm({...form,bills:b});}} />
-                    </div>
-                  ))}
-                  <Button type="button" variant="outline" size="sm" onClick={()=>setForm({...form,bills:[...form.bills,blankBill()]})}><Plus className="h-3 w-3 mr-1"/>Add Bill</Button>
-                </div>
-              </div>
-            )}
-
-            {/* Other */}
-            {form.category === "Other" && (
-              <div className="rounded-lg border border-border p-3 space-y-3">
-                <p className="text-xs font-semibold uppercase text-muted-foreground">Other Expense</p>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div><Label>Purpose</Label><Input value={form.purpose} onChange={(e)=>setForm({...form,purpose:e.target.value})} /></div>
-                  <div><Label>Remarks</Label><Input value={form.remarks} onChange={(e)=>setForm({...form,remarks:e.target.value})} /></div>
-                  <div className="sm:col-span-2"><Label>Description</Label><Textarea value={form.description} onChange={(e)=>setForm({...form,description:e.target.value})} rows={2} /></div>
-                </div>
-                <Label>Bills — Grand Total: <b>{inr(billsTotal(form.bills))}</b></Label>
-                <div className="space-y-2">
-                  {form.bills.map((bill,idx)=>(
-                    <div key={bill.id} className="rounded-md border border-border p-2 space-y-2">
-                      <div className="flex justify-between text-xs"><span>Bill {idx+1}</span><button type="button" onClick={()=>setForm({...form,bills:form.bills.filter((_,i)=>i!==idx)})} className="text-destructive hover:underline text-xs">Delete</button></div>
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        <div><Label className="text-xs">Amount (₹) *</Label><Input type="number" value={bill.amount||""} onChange={(e)=>{const b=[...form.bills];b[idx]={...b[idx],amount:+e.target.value};setForm({...form,bills:b});}} /></div>
-                        <div><Label className="text-xs">Remarks</Label><Input value={bill.remarks||""} onChange={(e)=>{const b=[...form.bills];b[idx]={...b[idx],remarks:e.target.value};setForm({...form,bills:b});}} /></div>
-                      </div>
-                      <BillManager bills={bill.url?[bill]:[]} onChange={(bs)=>{const b=[...form.bills];b[idx]={...b[idx],...(bs[bs.length-1]??{}),amount:b[idx].amount};setForm({...form,bills:b});}} />
-                    </div>
-                  ))}
-                  <Button type="button" variant="outline" size="sm" onClick={()=>setForm({...form,bills:[...form.bills,blankBill()]})}><Plus className="h-3 w-3 mr-1"/>Add Bill</Button>
-                </div>
-              </div>
-            )}
-
-            {/* Grand Total */}
-            <div className="rounded-lg bg-primary/5 border border-primary/20 p-3 flex justify-between items-center">
-              <span className="font-semibold">Grand Total</span>
-              <span className="text-xl font-bold text-primary">{inr(calcAmount(form))}</span>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={()=>setOpen(false)}>Cancel</Button>
-            <Button onClick={save}>Save Entry</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* View Dialog */}
-      <Dialog open={!!view} onOpenChange={(o)=>!o&&setView(null)}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          {view && (
-            <>
-              <DialogHeader><DialogTitle>Finance Entry — Day {(view as any).sessionDay}</DialogTitle></DialogHeader>
-              <div className="grid gap-3 text-sm sm:grid-cols-2">
-                <div><span className="text-muted-foreground">Date:</span> {view.date}</div>
-                <div><span className="text-muted-foreground">Category:</span> {view.category}</div>
-                <div><span className="text-muted-foreground">Cluster:</span> {(view as any).clusterName ?? "—"}</div>
-                <div><span className="text-muted-foreground">College:</span> {(view as any).collegeName ?? "—"}</div>
-                <div><span className="text-muted-foreground">Financer:</span> {(view as any).financerName ?? "—"}</div>
-                <div><span className="text-muted-foreground">Submitted By:</span> {view.submittedBy}</div>
-                <div><span className="text-muted-foreground">Amount:</span> <b>{inr(view.amount)}</b></div>
-                <div><span className="text-muted-foreground">Status:</span> {view.status}</div>
-                {view.travelFrom && <div><span className="text-muted-foreground">From → To:</span> {view.travelFrom} → {view.travelTo}</div>}
-                {view.volunteerCount && <div><span className="text-muted-foreground">Volunteers:</span> {view.volunteerCount}</div>}
-                {view.description && <div className="sm:col-span-2"><span className="text-muted-foreground">Description:</span> {view.description}</div>}
-                <div className="sm:col-span-2">
-                  <div className="mb-2 text-muted-foreground">Attached Bills ({view.bills.length})</div>
-                  <BillManager bills={view.bills} onChange={()=>{}} readOnly />
-                </div>
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Reopen Request Dialog */}
-      <Dialog open={reopenOpen} onOpenChange={setReopenOpen}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Request Reopen</DialogTitle>
-            <DialogDescription>Entry is locked. Provide a reason to request reopen from Super Admin.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div><Label>Reason <span className="text-destructive">*</span></Label><Textarea value={reopenReason} onChange={(e)=>setReopenReason(e.target.value)} placeholder="Why do you need to edit this entry?" rows={3} /></div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={()=>setReopenOpen(false)}>Cancel</Button>
-            <Button onClick={submitReopen}>Submit Request</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* PDF Dialog */}
-      <Dialog open={pdfOpen} onOpenChange={setPdfOpen}>
-        <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
-          <DialogHeader><DialogTitle>Finance Settlement Report</DialogTitle></DialogHeader>
-          <FinanceReport expenses={s.expenses} advances={s.advances} refunds={s.refunds} />
-          <DialogFooter>
-            <Button variant="outline" onClick={()=>setPdfOpen(false)}>Close</Button>
-            <Button onClick={()=>{ if(downloadFinancePdf(s.expenses,s.advances,s.refunds)){toast.success("Save as PDF in print dialog");}else{toast.error("Allow pop-ups");} }}>
-              <Download className="h-4 w-4" /> Download PDF
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </CardContent>
+        </Card>
+      </div>
     </AppShell>
   );
 }
