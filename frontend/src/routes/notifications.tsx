@@ -13,7 +13,7 @@ export const Route = createFileRoute("/notifications")({
   component: Page,
 });
 
-const iconFor = { Finance: Wallet, Refund: Undo2, Timeline: Activity, Admin: UserCog, Alert: AlertTriangle };
+const iconFor = { Finance: Wallet, Refund: Undo2, Timeline: Activity, Admin: UserCog, Alert: AlertTriangle, Reopen: AlertTriangle };
 
 function Page() {
   const s = useStore();
@@ -54,6 +54,7 @@ function Page() {
           <TabsTrigger value="refund">Refund</TabsTrigger>
           <TabsTrigger value="timeline">Timeline</TabsTrigger>
           <TabsTrigger value="admin">Admin</TabsTrigger>
+          <TabsTrigger value="reopen">Reopen</TabsTrigger>
         </TabsList>
         <TabsContent value="all" className="mt-4">{list(filter())}</TabsContent>
         <TabsContent value="alerts" className="mt-4">{list(filter("Alert"))}</TabsContent>
@@ -61,6 +62,7 @@ function Page() {
         <TabsContent value="refund" className="mt-4">{list(filter("Refund"))}</TabsContent>
         <TabsContent value="timeline" className="mt-4">{list(filter("Timeline"))}</TabsContent>
         <TabsContent value="admin" className="mt-4">{list(filter("Admin"))}</TabsContent>
+        <TabsContent value="reopen" className="mt-4">{list(filter("Reopen"))}</TabsContent>
       </Tabs>
     </AppShell>
   );

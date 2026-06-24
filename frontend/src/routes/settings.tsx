@@ -33,6 +33,8 @@ function Page() {
   const [financerName, setFinancerName] = useState(financeSettings?.defaultFinancerName ?? "TQI Finance Team");
   const [lockHours, setLockHours] = useState(String(financeSettings?.lockAfterHours ?? 48));
 
+  const save = () => toast.success("Settings saved");
+
   const saveFinance = () => {
     if (financeSettings) {
       s.upsert("financeSettings", { ...financeSettings, defaultFinancerName: financerName, lockAfterHours: Number(lockHours) });

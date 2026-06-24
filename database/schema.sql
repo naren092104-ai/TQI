@@ -156,7 +156,12 @@ CREATE TABLE IF NOT EXISTS `advances` (
 
 CREATE TABLE IF NOT EXISTS `expenses` (
   `id` VARCHAR(64) PRIMARY KEY,
+  `sessionDay` INT,
   `date` DATE,
+  `clusterId` VARCHAR(64),
+  `clusterName` VARCHAR(255),
+  `collegeName` VARCHAR(255),
+  `financerName` VARCHAR(255),
   `category` VARCHAR(64),
   `amount` DECIMAL(12,2),
   `description` TEXT,
@@ -165,12 +170,24 @@ CREATE TABLE IF NOT EXISTS `expenses` (
   `advanceId` VARCHAR(64),
   `travelFrom` VARCHAR(255),
   `travelTo` VARCHAR(255),
+  `volunteerCount` INT,
   `breakfast` DECIMAL(12,2),
   `lunch` DECIMAL(12,2),
   `dinner` DECIMAL(12,2),
   `refreshment` DECIMAL(12,2),
+  `itemName` VARCHAR(255),
+  `quantity` INT,
+  `fuelType` VARCHAR(64),
+  `litres` DECIMAL(10,2),
+  `vehicleNumber` VARCHAR(64),
+  `purpose` TEXT,
   `remarks` TEXT,
-  `bills` JSON
+  `bills` JSON,
+  `foodBills` JSON,
+  `lockedAt` DATETIME,
+  `reopenRequestId` VARCHAR(64),
+  `createdAt` DATETIME,
+  `updatedAt` DATETIME
 );
 
 CREATE TABLE IF NOT EXISTS `refunds` (

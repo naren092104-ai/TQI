@@ -58,11 +58,11 @@ function Page() {
             <div className="grid grid-cols-7 gap-1 text-xs">
               {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(d => <div key={d} className="p-2 text-center font-semibold text-muted-foreground">{d}</div>)}
               {Array.from({ length: 35 }).map((_, i) => {
-                const t = s.timeline[i % s.timeline.length];
+                const t = s.timeline.length > 0 ? s.timeline[i % s.timeline.length] : null;
                 return (
                   <div key={i} className="min-h-20 rounded-md border border-border p-1.5">
                     <div className="text-[10px] text-muted-foreground">{i + 1}</div>
-                    {i % 5 === 0 && <div className={`mt-1 rounded px-1.5 py-0.5 text-[10px] ${statusTone[t.status]}`}>{t.title.slice(0,18)}</div>}
+                    {i % 5 === 0 && t && <div className={`mt-1 rounded px-1.5 py-0.5 text-[10px] ${statusTone[t.status]}`}>{t.title.slice(0,18)}</div>}
                   </div>
                 );
               })}
