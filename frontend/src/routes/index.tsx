@@ -3,17 +3,19 @@ import { SmartShell as AppShell, SmartPageHeader as PageHeader } from "@/compone
 import { KpiCard } from "@/components/layout/kpi-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { useStore } from "@/lib/store";
+import { inr } from "@/lib/format";
 import {
   Network, MapPin, Trees, School as SchoolIcon, Users, HeartHandshake, BookOpen,
   Wallet, Banknote, Undo2, ShieldCheck, ClipboardCheck, BookCheck, Activity,
-  Plus, FileText,
+  Plus, FileText, RefreshCw,
 } from "lucide-react";
-import { useStore } from "@/lib/store";
-import { inr } from "@/lib/format";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   BarChart, Bar, LineChart, Line, Legend,
 } from "recharts";
+import { useState } from "react";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/")({
   head: () => ({ meta: [{ title: "Dashboard — TQI Admin" }] }),
@@ -26,6 +28,19 @@ const trend = (base: number, vol = 0.2) =>
 
 function Dashboard() {
   const s = useStore();
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await s.reload();
+      toast.success("Data refreshed");
+    } catch {
+      toast.error("Refresh failed — check backend");
+    } finally {
+      setRefreshing(false);
+    }
+  };
   const totalExp = s.expenses.reduce((a, b) => a + b.amount, 0);
   const totalAdv = s.advances.reduce((a, b) => a + b.amount, 0);
   const totalRef = s.refunds.reduce((a, b) => a + b.amount, 0);
@@ -84,6 +99,9 @@ function Dashboard() {
         badge="Live"
         actions={
           <>
+            <Button variant="outline" onClick={handleRefresh} disabled={refreshing}>
+              <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} /> Refresh
+            </Button>
             <Button variant="outline" asChild><Link to="/reports"><FileText className="h-4 w-4" /> Reports</Link></Button>
             <Button className="bg-secondary text-secondary-foreground hover:bg-secondary/90" asChild>
               <Link to="/clusters"><Plus className="h-4 w-4" /> Quick Create</Link>

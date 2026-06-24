@@ -100,65 +100,66 @@ function VolunteersPage() {
     const selectedSession = sessionDays.find(d => d.day === selectedDay);
     const sessionDate = selectedSession?.date !== "—" ? selectedSession?.date : today;
 
-    const presentIds = filteredVolunteers.filter(v => attendance[v.id] === "present").map(v => v.id);
-    const absentIds = filteredVolunteers.filter(v => attendance[v.id] === "absent").map(v => v.id);
+    const presentCount = filteredVolunteers.filter(v => attendance[v.id] === "present").length;
+    const totalCount = filteredVolunteers.length;
 
+    let saved = 0;
+    let failed = 0;
     try {
-      // Save as attendance record grouped by cluster
-      const clusterMap: Record<string, { present: number; total: number }> = {};
-      filteredVolunteers.forEach(v => {
-        const key = v.clusterId || "unknown";
-        if (!clusterMap[key]) clusterMap[key] = { present: 0, total: 0 };
-        clusterMap[key].total += 1;
-        if (attendance[v.id] === "present") clusterMap[key].present += 1;
-      });
-
-      for (const [, counts] of Object.entries(clusterMap)) {
-        await s.upsert("attendance", {
-          id: newId(),
-          date: sessionDate,
-          schoolId: myClusterId || "cluster",
-          present: counts.present,
-          total: counts.total,
-          type: "volunteer",
-        } as any);
-      }
-      toast.success("Volunteer attendance saved successfully");
+      await s.upsert("attendance", {
+        id: newId(),
+        date: sessionDate,
+        schoolId: myClusterId || "cluster",
+        present: presentCount,
+        total: totalCount,
+        type: "volunteer",
+      } as any);
+      saved++;
     } catch {
-      toast.error("Failed to save — check backend connection");
+      failed++;
+    }
+
+    if (failed > 0 && saved === 0) {
+      toast.error("Failed to save — make sure backend is running on port 4000");
+    } else {
+      toast.success(`Volunteer attendance saved for Day ${selectedDay} (${presentCount} present / ${totalCount - presentCount} absent)`);
     }
   };
 
   const handleSubmit = async () => {
     if (pendingCount > 0) {
-      return toast.error(`${pendingCount} volunteers still pending`);
+      return toast.error(`${pendingCount} volunteers still pending — mark all as Present or Absent first`);
     }
     await handleSave();
-    toast.success("Volunteer attendance submitted successfully");
   };
 
   return (
     <AppShell>
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
-      {/* Header */}
-      <div className="border-b border-white/50 bg-white/80 backdrop-blur-xl">
-        <div className="px-4 sm:px-6 py-4">
+    <div className="bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 -mx-4 -mt-6 sm:-mx-6 lg:-mx-8">
+      {/* Sub-header */}
+      <div className="border-b border-white/50 bg-white/80 backdrop-blur-xl px-4 sm:px-6 py-3">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
-              <h1 className="text-xl font-bold text-slate-900">Volunteers Attendance</h1>
-              <p className="text-sm text-slate-600">Track and manage volunteer attendance records</p>
+              <h1 className="text-lg font-bold text-slate-900">Volunteers Attendance</h1>
+              <p className="text-xs text-slate-600">Track and manage volunteer attendance records</p>
             </div>
             <div className="flex gap-2 flex-wrap">
-              <Button variant="outline" size="sm" onClick={() => handleMarkAll("absent")}><RotateCcw className="h-4 w-4 mr-2" /> Mark All Absent</Button>
-              <Button variant="outline" size="sm" onClick={() => handleMarkAll("present")}><Users className="h-4 w-4 mr-2" /> Mark All Present</Button>
-              <Button size="sm" onClick={handleSave}><Save className="h-4 w-4 mr-2" /> Save</Button>
-              <Button size="sm" onClick={handleSubmit}><Send className="h-4 w-4 mr-2" /> Submit</Button>
+              <Button variant="outline" size="sm" onClick={() => handleMarkAll("absent")}><RotateCcw className="h-4 w-4 mr-1" /> Mark All Absent</Button>
+              <Button variant="outline" size="sm" onClick={() => handleMarkAll("present")}><Users className="h-4 w-4 mr-1" /> Mark All Present</Button>
+              <Button size="sm" onClick={handleSave}><Save className="h-4 w-4 mr-1" /> Save</Button>
+              <Button 
+                size="sm" 
+                onClick={handleSubmit} 
+                disabled={filteredVolunteers.length === 0 || pendingCount === filteredVolunteers.length}
+                title={pendingCount > 0 ? `${pendingCount} volunteers still pending` : "Submit attendance"}
+              >
+                <Send className="h-4 w-4 mr-1" /> Submit {pendingCount > 0 && `(${pendingCount} pending)`}
+              </Button>
             </div>
           </div>
-        </div>
       </div>
 
-      <div className="px-4 sm:px-6 py-6">
+      <div className="px-4 sm:px-6 py-4">
         {/* Session Cards */}
         <div className="mb-6 flex items-center gap-2">
           <button
@@ -179,19 +180,23 @@ function VolunteersPage() {
                   className={`snap-center min-w-[130px] flex-shrink-0 rounded-lg px-3 py-2 text-center text-xs font-medium transition-all ${
                     selectedDay === day.day
                       ? "bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-200 text-white"
-                      : `${
-                          day.status === "completed"
-                            ? "bg-white text-slate-900 border border-green-200"
-                            : day.status === "pending"
-                              ? "bg-white text-slate-900 border border-yellow-200"
-                              : "bg-white text-slate-400 border border-slate-200"
-                        } hover:shadow-md`
+                      : day.date === "—"
+                        ? "bg-white/40 text-slate-300 border border-slate-200 cursor-not-allowed"
+                        : `${
+                            day.status === "completed"
+                              ? "bg-white text-slate-900 border border-green-200"
+                              : day.status === "ongoing"
+                                ? "bg-white text-slate-900 border border-yellow-200"
+                                : "bg-white text-slate-600 border border-blue-200"
+                          } hover:shadow-md cursor-pointer`
                   }`}
+                  disabled={day.date === "—"}
                 >
                   <div className="font-semibold">Day {day.day}</div>
-                  <div className="text-[10px] opacity-75">{day.date}</div>
+                  <div className="text-[10px] opacity-75">{day.date !== "—" ? day.date : "Not scheduled"}</div>
                   {day.status === "completed" && <div className="text-green-500">✓</div>}
-                  {day.status === "pending" && <div className="text-yellow-500">◐</div>}
+                  {day.status === "ongoing" && <div className="text-yellow-500">◐</div>}
+                  {day.date === "—" && <div className="text-slate-300 text-[9px]">No date set</div>}
                 </button>
               ))}
             </div>
@@ -512,14 +517,9 @@ function VolunteersPage() {
           </div>
         </div>
 
-        {/* Export Buttons */}
         <div className="mt-6 flex gap-2 justify-end">
-          <Button variant="outline" size="sm">
-            <Download className="h-4 w-4 mr-2" /> Export Excel
-          </Button>
-          <Button variant="outline" size="sm">
-            <Download className="h-4 w-4 mr-2" /> Export PDF
-          </Button>
+          <Button variant="outline" size="sm"><Download className="h-4 w-4 mr-2" /> Export Excel</Button>
+          <Button variant="outline" size="sm"><Download className="h-4 w-4 mr-2" /> Export PDF</Button>
         </div>
       </div>
     </div>

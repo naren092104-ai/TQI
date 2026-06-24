@@ -101,7 +101,7 @@ function StudentsAttendancePage() {
     const selectedSession = sessionDays.find(d => d.day === selectedDay);
     const sessionDate = selectedSession?.date !== "—" ? selectedSession?.date : today;
 
-    // Group by school and save attendance rows
+    // Group by school
     const schoolGroups: Record<string, { present: number; total: number }> = {};
     filteredStudents.forEach(st => {
       if (!schoolGroups[st.schoolId]) schoolGroups[st.schoolId] = { present: 0, total: 0 };
@@ -109,8 +109,10 @@ function StudentsAttendancePage() {
       if (attendance[st.id] === "present") schoolGroups[st.schoolId].present += 1;
     });
 
-    try {
-      for (const [schoolId, counts] of Object.entries(schoolGroups)) {
+    let saved = 0;
+    let failed = 0;
+    for (const [schoolId, counts] of Object.entries(schoolGroups)) {
+      try {
         await s.upsert("attendance", {
           id: newId(),
           date: sessionDate,
@@ -119,43 +121,55 @@ function StudentsAttendancePage() {
           total: counts.total,
           type: "student",
         } as any);
+        saved++;
+      } catch {
+        failed++;
       }
-      toast.success("Attendance saved successfully");
-    } catch {
-      toast.error("Failed to save — check backend connection");
+    }
+
+    if (failed > 0 && saved === 0) {
+      toast.error("Failed to save — make sure backend is running");
+    } else if (failed > 0) {
+      toast.warning(`Saved ${saved}, failed ${failed} — check backend`);
+    } else {
+      toast.success(`Attendance saved for Day ${selectedDay} (${presentCount} present / ${absentCount} absent)`);
     }
   };
 
   const handleSubmit = async () => {
     if (pendingCount > 0) {
-      return toast.error(`${pendingCount} students still pending`);
+      return toast.error(`${pendingCount} students still pending — mark all as Present or Absent first`);
     }
     await handleSave();
-    toast.success("Attendance submitted successfully");
   };
 
   return (
     <AppShell>
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
-      {/* Header */}
-      <div className="border-b border-white/50 bg-white/80 backdrop-blur-xl">
-        <div className="px-4 sm:px-6 py-4">
+    <div className="bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 -mx-4 -mt-6 sm:-mx-6 lg:-mx-8">
+      {/* Sub-header */}
+      <div className="border-b border-white/50 bg-white/80 backdrop-blur-xl px-4 sm:px-6 py-3">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
-              <h1 className="text-xl font-bold text-slate-900">Students Attendance</h1>
-              <p className="text-sm text-slate-600">Track and manage student attendance records</p>
+              <h1 className="text-lg font-bold text-slate-900">Students Attendance</h1>
+              <p className="text-xs text-slate-600">Track and manage student attendance records</p>
             </div>
             <div className="flex gap-2 flex-wrap">
-              <Button variant="outline" size="sm" onClick={() => handleMarkAll("absent")}><RotateCcw className="h-4 w-4 mr-2" /> Mark All Absent</Button>
-              <Button variant="outline" size="sm" onClick={() => handleMarkAll("present")}><Users className="h-4 w-4 mr-2" /> Mark All Present</Button>
-              <Button size="sm" onClick={handleSave}><Save className="h-4 w-4 mr-2" /> Save</Button>
-              <Button size="sm" onClick={handleSubmit}><Send className="h-4 w-4 mr-2" /> Submit</Button>
+              <Button variant="outline" size="sm" onClick={() => handleMarkAll("absent")}><RotateCcw className="h-4 w-4 mr-1" /> Mark All Absent</Button>
+              <Button variant="outline" size="sm" onClick={() => handleMarkAll("present")}><Users className="h-4 w-4 mr-1" /> Mark All Present</Button>
+              <Button size="sm" onClick={handleSave}><Save className="h-4 w-4 mr-1" /> Save</Button>
+              <Button 
+                size="sm" 
+                onClick={handleSubmit} 
+                disabled={filteredStudents.length === 0 || pendingCount === filteredStudents.length}
+                title={pendingCount > 0 ? `${pendingCount} students still pending` : "Submit attendance"}
+              >
+                <Send className="h-4 w-4 mr-1" /> Submit {pendingCount > 0 && `(${pendingCount} pending)`}
+              </Button>
             </div>
           </div>
-        </div>
       </div>
 
-      <div className="px-4 sm:px-6 py-6">
+      <div className="px-4 sm:px-6 py-4">
         {/* Session Cards */}
         <div className="mb-6 flex items-center gap-2">
           <button
@@ -176,21 +190,23 @@ function StudentsAttendancePage() {
                   className={`snap-center min-w-[130px] flex-shrink-0 rounded-lg px-3 py-2 text-center text-xs font-medium transition-all ${
                     selectedDay === day.day
                       ? "bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-200 text-white"
-                      : `${
-                          day.status === "completed"
-                            ? "bg-white text-slate-900 border border-green-200"
-                            : day.status === "ongoing"
-                              ? "bg-white text-slate-900 border border-yellow-200"
-                              : day.date !== "—"
-                                ? "bg-white text-slate-900 border border-blue-200"
-                                : "bg-white text-slate-400 border border-slate-200"
-                        } hover:shadow-md`
+                      : day.date === "—"
+                        ? "bg-white/40 text-slate-300 border border-slate-200 cursor-not-allowed"
+                        : `${
+                            day.status === "completed"
+                              ? "bg-white text-slate-900 border border-green-200"
+                              : day.status === "ongoing"
+                                ? "bg-white text-slate-900 border border-yellow-200"
+                                : "bg-white text-slate-600 border border-blue-200"
+                          } hover:shadow-md cursor-pointer`
                   }`}
+                  disabled={day.date === "—"}
                 >
                   <div className="font-semibold">Day {day.day}</div>
-                  <div className="text-[10px] opacity-75">{day.date}</div>
+                  <div className="text-[10px] opacity-75">{day.date !== "—" ? day.date : "Not scheduled"}</div>
                   {day.status === "completed" && <div className="text-green-500">✓</div>}
                   {day.status === "ongoing" && <div className="text-yellow-500">◐</div>}
+                  {day.date === "—" && <div className="text-slate-300 text-[9px]">No date set</div>}
                 </button>
               ))}
             </div>
@@ -531,14 +547,9 @@ function StudentsAttendancePage() {
           </div>
         </div>
 
-        {/* Export Buttons */}
         <div className="mt-6 flex gap-2 justify-end">
-          <Button variant="outline" size="sm">
-            <Download className="h-4 w-4 mr-2" /> Export Excel
-          </Button>
-          <Button variant="outline" size="sm">
-            <Download className="h-4 w-4 mr-2" /> Export PDF
-          </Button>
+          <Button variant="outline" size="sm"><Download className="h-4 w-4 mr-2" /> Export Excel</Button>
+          <Button variant="outline" size="sm"><Download className="h-4 w-4 mr-2" /> Export PDF</Button>
         </div>
       </div>
     </div>
