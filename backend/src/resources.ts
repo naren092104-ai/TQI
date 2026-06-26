@@ -41,11 +41,13 @@ export const RESOURCE_MAP = {
   },
   attendance: {
     table: "attendance",
-    columns: ["id", "date", "schoolId", "present", "total", "type"],
+    columns: ["id", "date", "schoolId", "present", "total", "type", "status", "sessionId", "clusterId", "submittedBy", "details"],
+    jsonColumns: ["details"],
   },
   homework: {
     table: "homework",
-    columns: ["id", "date", "schoolId", "completed", "partial", "notDone"],
+    columns: ["id", "date", "schoolId", "completed", "partial", "notDone", "status", "sessionId", "clusterId", "submittedBy", "details"],
+    jsonColumns: ["details"],
   },
   advances: {
     table: "advances",

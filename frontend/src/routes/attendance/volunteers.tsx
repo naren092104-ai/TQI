@@ -18,30 +18,6 @@ import {
 } from "lucide-react";
 import { useRef } from "react";
 
-const WINDOW_MS = 48 * 60 * 60 * 1000;
-const REOPEN_REASONS = ["Attendance Missing", "Wrong Data Entered", "Other"] as const;
-
-function isVolWindowOpen(sess: { status: string; completedAt?: string; reopenUntil?: string } | undefined): boolean {
-  if (!sess) return false;
-  if (sess.reopenUntil && new Date(sess.reopenUntil) > new Date()) return true;
-  if (sess.status !== "Completed") return false;
-  if (!sess.completedAt) return false;
-  return (Date.now() - new Date(sess.completedAt).getTime()) < WINDOW_MS;
-}
-
-function getVolWindowRemaining(sess: { completedAt?: string; reopenUntil?: string }): string {
-  if (sess.reopenUntil) {
-    const ms = new Date(sess.reopenUntil).getTime() - Date.now();
-    if (ms <= 0) return "Expired";
-    return `${Math.floor(ms / 3600000)}h ${Math.floor((ms % 3600000) / 60000)}m`;
-  }
-  if (!sess.completedAt) return "";
-  const remaining = WINDOW_MS - (Date.now() - new Date(sess.completedAt).getTime());
-  if (remaining <= 0) return "Expired";
-  return `${Math.floor(remaining / 3600000)}h ${Math.floor((remaining % 3600000) / 60000)}m`;
-}
-
-// Allowed years — dropdown only
 const VOLUNTEER_YEARS = [
   { value: "1", label: "1st Year" },
   { value: "2", label: "2nd Year" },
@@ -72,11 +48,9 @@ function VolunteersPage() {
     () => s.sessions.find((sess) => sess.day === selectedDay && (isClusterAdmin(user?.role) ? sess.clusterId === myClusterId : true)),
     [s.sessions, selectedDay, user?.role, myClusterId],
   );
-  const windowOpen = isVolWindowOpen(selectedSession as any);
-  const isReopened = !!(selectedSession?.reopenUntil && new Date(selectedSession.reopenUntil) > new Date());
-  const canEdit = !isSuper && (windowOpen || isReopened || !selectedSession?.completedAt);
-
-  // submitReopen removed
+  // canEdit: session Completed, not yet submitted
+  const hasSubmitted = !!s.attendance.find(a => (a as any).sessionId === selectedSession?.id && a.type === "volunteer" && (a as any).status === "Submitted");
+  const canEdit = !isSuper && selectedSession?.status === "Completed" && !hasSubmitted;
 
   // Real sessions from store
   const sessionDays = useMemo(() => {
@@ -137,57 +111,118 @@ function VolunteersPage() {
 
   // Super Admin: show cluster-wise summary instead of entry UI
   if (isSuper) {
-    const clusters = s.clusters.map(c => {
-      // Filter submitted attendance by clusterId (more reliable)
-      const volunteerRows = s.attendance.filter(a => a.type === "volunteer" && (a as any).clusterId === c.id && (a as any).status === "Submitted");
-      const volunteersPresent = volunteerRows.reduce((a,b) => a + (b.present || 0), 0);
-      const volunteersTotal = volunteerRows.reduce((a,b) => a + (b.total || 0), 0);
-      return { id: c.id, name: c.name, volunteersPresent, volunteersTotal };
+    const clusterData = s.clusters.map(c => {
+      const rows = s.attendance.filter(a =>
+        a.type === "volunteer" &&
+        (a as any).clusterId === c.id &&
+        (a as any).status === "Submitted"
+      );
+      const latestRow = [...rows].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0] as any;
+      const present = rows.reduce((sum, r) => sum + (r.present || 0), 0);
+      const total   = rows.reduce((sum, r) => sum + (r.total   || 0), 0);
+      const sessionId = latestRow?.sessionId;
+      const session   = s.sessions.find(sess => sess.id === sessionId);
+      const submittedBy = latestRow?.submittedBy ?? "—";
+      const lastUpdate  = latestRow?.date ?? null;
+      const details: Record<string, "present" | "absent"> = latestRow?.details ?? {};
+      return { cluster: c, present, total, absent: total - present, session, submittedBy, lastUpdate, details, submitted: rows.length > 0 };
     });
 
     return (
       <AppShell>
-        <div className="px-4 py-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold">Cluster Volunteers — Summary</h2>
+        <div className="px-4 sm:px-6 py-6">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className="text-xl font-bold">Volunteer Attendance — Cluster Summary</h2>
+              <p className="text-sm text-muted-foreground">Submitted by Cluster Admins</p>
+            </div>
             <Button variant="outline" size="sm" onClick={() => window.location.reload()}>Refresh</Button>
           </div>
-          {clusters.every(c => c.volunteersTotal === 0) ? (
-            <div className="rounded-lg border border-dashed p-8 text-center text-muted-foreground">
-              <p className="mb-2">No volunteer attendance submissions yet</p>
-              <p className="text-xs">Cluster Admins will submit volunteer attendance records here</p>
-            </div>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2">
-              {clusters.map(cl => (
-                <div key={cl.id} className={`rounded-lg border p-4 ${cl.volunteersTotal > 0 ? 'bg-blue-50' : 'bg-white'}`}>
+
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {clusterData.map(({ cluster, present, total, absent, session, submittedBy, lastUpdate, details, submitted }) => (
+              <div key={cluster.id} className={`rounded-xl border-2 shadow-sm overflow-hidden ${submitted ? "border-green-200 bg-white" : "border-dashed border-slate-200 bg-slate-50/50"}`}>
+                {/* Card Header */}
+                <div className={`px-4 py-3 ${submitted ? "bg-green-50" : "bg-slate-50"}`}>
                   <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-medium">{cl.name}</div>
-                      {cl.volunteersTotal > 0 && (
-                        <div className="text-xs text-muted-foreground">
-                          Volunteers: <span className="font-semibold text-green-600">{cl.volunteersPresent}</span> / {cl.volunteersTotal}
-                        </div>
-                      )}
-                      {cl.volunteersTotal === 0 && (
-                        <div className="text-xs text-slate-400">Pending submissions</div>
-                      )}
-                    </div>
-                    <div>
-                      <button onClick={() => setOpenCluster(openCluster === cl.id ? null : cl.id)} className="text-sm text-primary">
-                        {openCluster === cl.id ? "Hide" : "View"}
-                      </button>
-                    </div>
+                    <span className="font-semibold text-base">{cluster.name}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${submitted ? "bg-green-100 text-green-700" : "bg-slate-200 text-slate-500"}`}>
+                      {submitted ? "✓ Submitted" : "Pending"}
+                    </span>
                   </div>
-                  {openCluster === cl.id && (
-                    <div className="mt-3 text-sm text-muted-foreground border-t pt-2">
-                      <div>Detailed records available in expanded view.</div>
-                    </div>
-                  )}
+                  {session && <p className="text-xs text-muted-foreground mt-0.5">Session: Day {session.day} — {session.title}</p>}
                 </div>
-              ))}
-            </div>
-          )}
+
+                {/* Stats */}
+                <div className="px-4 py-3 text-xs space-y-1">
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                    <div className="flex justify-between"><span className="text-slate-500">Total Volunteers</span><span className="font-semibold">{total}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Present</span><span className="font-semibold text-green-600">{present}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Absent</span><span className="font-semibold text-red-500">{absent}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Attendance %</span><span className="font-semibold">{total > 0 ? ((present / total) * 100).toFixed(0) : 0}%</span></div>
+                    {lastUpdate && <div className="flex justify-between"><span className="text-slate-500">Submitted Date</span><span className="font-medium">{lastUpdate}</span></div>}
+                  </div>
+                  {submittedBy && submitted && <p className="text-muted-foreground">By: {submittedBy}</p>}
+                </div>
+
+                {/* View Details */}
+                {submitted && (
+                  <div className="px-4 pb-3">
+                    <button
+                      onClick={() => setOpenCluster(openCluster === cluster.id ? null : cluster.id)}
+                      className="w-full text-xs text-center py-1.5 rounded-md border border-primary/30 text-primary hover:bg-primary/5 transition-colors font-medium"
+                    >
+                      {openCluster === cluster.id ? "Hide Details ▲" : "View Details ▼"}
+                    </button>
+                  </div>
+                )}
+                {!submitted && (
+                  <div className="px-4 pb-3 text-xs text-slate-400 text-center">No submission yet</div>
+                )}
+
+                {/* Expanded volunteer list */}
+                {openCluster === cluster.id && submitted && (() => {
+                  const clusterVols = s.volunteers.filter(v => v.clusterId === cluster.id);
+                  return (
+                    <div className="border-t border-border px-4 pt-3 pb-4 bg-slate-50/80">
+                      <div className="text-xs font-semibold text-slate-700 mb-2">Volunteer List</div>
+                      <table className="w-full text-xs">
+                        <thead><tr className="border-b border-border/30">
+                          <th className="px-2 py-1 text-left text-slate-500">S.No</th>
+                          <th className="px-2 py-1 text-left text-slate-500">Name</th>
+                          <th className="px-2 py-1 text-left text-slate-500">College</th>
+                          <th className="px-2 py-1 text-left text-slate-500">Year</th>
+                          <th className="px-2 py-1 text-left text-slate-500">Mobile</th>
+                          <th className="px-2 py-1 text-center text-slate-500">Attendance</th>
+                        </tr></thead>
+                        <tbody>
+                          {clusterVols.map((v, idx) => {
+                            const attStatus = details[v.id] ?? null;
+                            return (
+                              <tr key={v.id} className="border-b border-border/20 hover:bg-slate-50">
+                                <td className="px-2 py-1.5 text-slate-400">{idx + 1}</td>
+                                <td className="px-2 py-1.5 font-medium">{v.name}</td>
+                                <td className="px-2 py-1.5 text-slate-500 truncate max-w-[80px]">{v.college || "—"}</td>
+                                <td className="px-2 py-1.5 text-slate-500">{v.year ? `${v.year}st/nd/rd/th` : "—"}</td>
+                                <td className="px-2 py-1.5 text-slate-500">{v.phone}</td>
+                                <td className="px-2 py-1.5 text-center">
+                                  {attStatus ? (
+                                    <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-medium ${attStatus === "present" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-600"}`}>
+                                      {attStatus === "present" ? "Present" : "Absent"}
+                                    </span>
+                                  ) : <span className="text-slate-300">—</span>}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
+              </div>
+            ))}
+          </div>
         </div>
       </AppShell>
     );
@@ -202,22 +237,49 @@ function VolunteersPage() {
     toast.success(`Marked all as ${status}`);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!selectedSession) return toast.error("No session selected");
-    s.upsert("attendance", {
+    // Build per-volunteer details
+    const details: Record<string, "present" | "absent"> = {};
+    filteredVolunteers.forEach(v => { details[v.id] = attendance[v.id] === "present" ? "present" : "absent"; });
+
+    await s.upsert("attendance", {
       id: newId(),
-      date: selectedSession.date ?? new Date().toISOString().slice(0,10),
-      schoolId: "",
+      date: selectedSession.date ?? new Date().toISOString().slice(0, 10),
+      schoolId: selectedSession.id, // sessionId stored in schoolId field
       present: presentCount,
       total: filteredVolunteers.length,
       type: "volunteer",
-    });
-    toast.success("Saved draft");
+      status: "Draft",
+      sessionId: selectedSession.id,
+      clusterId: myClusterId,
+      submittedBy: user?.name ?? user?.email ?? "Cluster Admin",
+      details,
+    } as any);
+    toast.success("Draft saved");
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (pendingCount > 0) return toast.error(`${pendingCount} volunteers still pending`);
-    toast.success("Attendance submitted");
+    if (!selectedSession) return toast.error("No session selected");
+
+    const details: Record<string, "present" | "absent"> = {};
+    filteredVolunteers.forEach(v => { details[v.id] = attendance[v.id] === "present" ? "present" : "absent"; });
+
+    await s.upsert("attendance", {
+      id: newId(),
+      date: selectedSession.date ?? new Date().toISOString().slice(0, 10),
+      schoolId: selectedSession.id,
+      present: presentCount,
+      total: filteredVolunteers.length,
+      type: "volunteer",
+      status: "Submitted",
+      sessionId: selectedSession.id,
+      clusterId: myClusterId,
+      submittedBy: user?.name ?? user?.email ?? "Cluster Admin",
+      details,
+    } as any);
+    toast.success("Attendance submitted — visible to Super Admin");
   };
 
   return (
@@ -232,23 +294,26 @@ function VolunteersPage() {
               <p className="text-sm text-slate-600">Track and manage volunteer attendance records</p>
             </div>
             <div className="flex gap-2 flex-wrap">
-              {/* 48hr window status + reopen request (cluster admins) */}
-              {selectedSession?.completedAt && (
-                <span className={`text-xs flex items-center gap-1 px-2 py-1 rounded-md ${canEdit ? "bg-green-50 text-green-700 border border-green-200" : "bg-slate-100 text-slate-500 border border-slate-200"}`}>
-                  {canEdit ? `⏱ Window: ${getVolWindowRemaining(selectedSession)}` : (
-                    <span className="inline-flex items-center gap-1"><Lock className="h-3 w-3" /> Submission closed</span>
-                  )}
-                </span>
-              )}
-
-              {/* Reopen handled by Super Admin only; cluster admins cannot request reopen */}
-
-              {canEdit && (
+              {isSuper ? (
                 <>
-                  <Button variant="outline" size="sm" onClick={() => handleMarkAll("absent")}><RotateCcw className="h-4 w-4 mr-2" /> Mark All Absent</Button>
-                  <Button variant="outline" size="sm" onClick={() => handleMarkAll("present")}><Users className="h-4 w-4 mr-2" /> Mark All Present</Button>
-                  <Button size="sm" onClick={handleSave}><Save className="h-4 w-4 mr-2" /> Save Draft</Button>
-                  <Button size="sm" onClick={handleSubmit}><Send className="h-4 w-4 mr-2" /> Submit Final</Button>
+                  <Button variant="outline" size="sm"><Download className="h-4 w-4 mr-2" /> Export Excel</Button>
+                  <Button variant="outline" size="sm"><Download className="h-4 w-4 mr-2" /> Export PDF</Button>
+                </>
+              ) : (
+                <>
+                  {canEdit && (
+                    <>
+                      <Button variant="outline" size="sm" onClick={() => handleMarkAll("absent")}><RotateCcw className="h-4 w-4 mr-2" /> Mark All Absent</Button>
+                      <Button variant="outline" size="sm" onClick={() => handleMarkAll("present")}><Users className="h-4 w-4 mr-2" /> Mark All Present</Button>
+                      <Button size="sm" onClick={handleSave}><Save className="h-4 w-4 mr-2" /> Save Draft</Button>
+                      <Button size="sm" onClick={handleSubmit}><Send className="h-4 w-4 mr-2" /> Submit Attendance</Button>
+                    </>
+                  )}
+                  {!canEdit && hasSubmitted && (
+                    <span className="text-xs text-slate-500 flex items-center gap-1 px-2 py-1 rounded-md bg-slate-100 border border-slate-200">
+                      <Lock className="h-3 w-3" /> Submitted — Read Only
+                    </span>
+                  )}
                 </>
               )}
             </div>

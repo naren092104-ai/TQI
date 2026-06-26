@@ -25,32 +25,6 @@ export const Route = createFileRoute("/attendance/students")({
 });
 
 const ATTENDANCE_STANDARDS = ["9", "10", "11", "12"] as const;
-const WINDOW_MS = 48 * 60 * 60 * 1000;
-const REOPEN_REASONS = ["Attendance Missing", "Wrong Data Entered", "Homework Not Updated", "Other"] as const;
-
-function isSessionWindowOpen(sess: { status: string; completedAt?: string; reopenUntil?: string } | undefined): boolean {
-  if (!sess) return false;
-  if (sess.reopenUntil && new Date(sess.reopenUntil) > new Date()) return true;
-  if (sess.status !== "Completed") return false;
-  if (!sess.completedAt) return false;
-  return (Date.now() - new Date(sess.completedAt).getTime()) < WINDOW_MS;
-}
-
-function getWindowRemaining(sess: { completedAt?: string; reopenUntil?: string }): string {
-  if (sess.reopenUntil) {
-    const ms = new Date(sess.reopenUntil).getTime() - Date.now();
-    if (ms <= 0) return "Expired";
-    const h = Math.floor(ms / 3600000);
-    const m = Math.floor((ms % 3600000) / 60000);
-    return `${h}h ${m}m`;
-  }
-  if (!sess.completedAt) return "";
-  const remaining = WINDOW_MS - (Date.now() - new Date(sess.completedAt).getTime());
-  if (remaining <= 0) return "Expired";
-  const h = Math.floor(remaining / 3600000);
-  const m = Math.floor((remaining % 3600000) / 60000);
-  return `${h}h ${m}m`;
-}
 
 function StudentsAttendancePage() {
   const s = useStore();
@@ -63,37 +37,19 @@ function StudentsAttendancePage() {
   const [selectedStudent, setSelectedStudent] = useState<any>(null);
   const [openCluster, setOpenCluster] = useState<string | null>(null);
 
-  // Reopen request
-  // Reopen requests removed — Super Admin handles reopen via Approvals
-
   // Selected session window check
   const selectedSession = useMemo(() =>
     s.sessions.find(sess => sess.day === selectedDay &&
       (isClusterAdmin(user?.role) ? sess.clusterId === myClusterId : true)),
     [s.sessions, selectedDay, user?.role, myClusterId]);
-  const windowOpen = isSessionWindowOpen(selectedSession as any);
-  // determine if cluster already submitted for this session
-  const hasSubmitted = !!s.attendance.find(a => (a as any).sessionId === selectedSession?.id && a.type === "student" && (a as any).status === "Submitted" && a.clusterId === myClusterId);
-  // Can edit only when session completed and either within 48h window before initial submit or reopened; after submit it becomes read-only until reopen
-  const canEdit = !isSuper && !!selectedSession?.completedAt && ((selectedSession.reopenUntil && new Date(selectedSession.reopenUntil) > new Date()) || (windowOpen && !hasSubmitted));
+  // canEdit: session must be Completed, and not yet submitted
+  const hasSubmitted = !!s.attendance.find(a => (a as any).sessionId === selectedSession?.id && a.type === "student" && (a as any).status === "Submitted");
+  const canEdit = !isSuper && selectedSession?.status === "Completed" && !hasSubmitted;
 
-  // Live clock to refresh window remaining every second
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, []);
-
-  // Homework state per student: 'completed' | 'incomplete' | 'pending'
+  // Homework state per student
   const [homework, setHomework] = useState<Record<string, "completed" | "incomplete" | "pending">>(
     Object.fromEntries(s.students.map((st) => [st.id, "pending"]))
   );
-  // reopen dialog state
-  const [reopenOpen, setReopenOpen] = useState(false);
-  const [reopenReason, setReopenReason] = useState("");
-  const [reopenOther, setReopenOther] = useState("");
-
-  // submitReopen removed
 
   // Real sessions from store — filtered by cluster for cluster admin
   const sessionDays = useMemo(() => {
@@ -103,9 +59,21 @@ function StudentsAttendancePage() {
     return Array.from({ length: 8 }, (_, i) => {
       const day = i + 1;
       const existing = filtered.find(sess => sess.day === day);
+      // Format date cleanly
+      let displayDate = "—";
+      if (existing?.date) {
+        try {
+          const d = new Date(existing.date);
+          if (!isNaN(d.getTime())) {
+            displayDate = d.toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+          } else {
+            displayDate = existing.date.slice(0, 10);
+          }
+        } catch { displayDate = existing.date.slice(0, 10); }
+      }
       return {
         day,
-        date: existing?.date ?? "—",
+        date: displayDate,
         status: existing ? existing.status.toLowerCase() : "upcoming",
         title: existing?.title ?? `Day ${day}`,
       };
@@ -150,65 +118,180 @@ function StudentsAttendancePage() {
 
   // Super Admin: show cluster-wise summary instead of entry UI
   if (isSuper) {
-    const clusters = s.clusters.map(c => {
-      // Filter submitted attendance by clusterId (more reliable than schoolId)
-      const studentRows = s.attendance.filter(a => a.type === "student" && (a as any).clusterId === c.id && (a as any).status === "Submitted");
-      const volunteerRows = s.attendance.filter(a => a.type === "volunteer" && (a as any).clusterId === c.id && (a as any).status === "Submitted");
-      const studentsPresent = studentRows.reduce((a,b) => a + (b.present || 0), 0);
-      const studentsTotal = studentRows.reduce((a,b) => a + (b.total || 0), 0);
-      const volunteersPresent = volunteerRows.reduce((a,b) => a + (b.present || 0), 0);
-      const volunteersTotal = volunteerRows.reduce((a,b) => a + (b.total || 0), 0);
-      return { id: c.id, name: c.name, studentsPresent, studentsTotal, volunteersPresent, volunteersTotal };
+    // Build ALL submissions grouped by cluster + day
+    const allSubmittedRows = s.attendance.filter(a =>
+      a.type === "student" && (a as any).status === "Submitted"
+    );
+
+    // Get unique days that have submissions
+    const submittedDays = [...new Set(allSubmittedRows.map(r => {
+      const sess = s.sessions.find(ss => ss.id === (r as any).sessionId);
+      return sess?.day ?? 0;
+    }).filter(d => d > 0))].sort();
+
+    const clusterData = s.clusters.map(c => {
+      // All submitted rows for this cluster across all days
+      const cRows = allSubmittedRows.filter(a => (a as any).clusterId === c.id);
+
+      // Group by session/day
+      const dayData = Array.from({ length: 8 }, (_, i) => {
+        const day = i + 1;
+        const dayRows = cRows.filter(r => {
+          const sess = s.sessions.find(ss => ss.id === (r as any).sessionId);
+          return sess?.day === day;
+        });
+        const latestRow = [...dayRows].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0] as any;
+        const hwRows = s.homework.filter(h =>
+          (h as any).clusterId === c.id && (h as any).status === "Submitted" &&
+          (() => { const sess = s.sessions.find(ss => ss.id === (h as any).sessionId); return sess?.day === day; })()
+        );
+        const present = dayRows.reduce((sum, r) => sum + (r.present || 0), 0);
+        const total   = dayRows.reduce((sum, r) => sum + (r.total   || 0), 0);
+        const hwCompleted = hwRows.reduce((sum, r) => sum + (r.completed || 0), 0);
+        const session = s.sessions.find(ss => ss.id === latestRow?.sessionId);
+        return { day, present, total, absent: total - present, hwCompleted, session, submittedBy: latestRow?.submittedBy ?? "—", lastUpdate: latestRow?.date ?? null, submitted: dayRows.length > 0, latestRow };
+      }).filter(d => d.total > 0 || (cRows.length > 0 && d.day <= 8));
+
+      return { cluster: c, dayData, hasAny: cRows.length > 0 };
     });
 
     return (
       <AppShell>
-        <div className="px-4 py-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold">Cluster Attendance — Summary</h2>
+        <div className="px-4 sm:px-6 py-6">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className="text-xl font-bold">Student Attendance — Cluster Summary</h2>
+              <p className="text-sm text-muted-foreground">Submitted by Cluster Admins</p>
+            </div>
             <Button variant="outline" size="sm" onClick={() => window.location.reload()}>Refresh</Button>
           </div>
-          {clusters.every(c => c.studentsTotal === 0 && c.volunteersTotal === 0) ? (
-            <div className="rounded-lg border border-dashed p-8 text-center text-muted-foreground">
-              <p className="mb-2">No attendance submissions yet</p>
-              <p className="text-xs">Cluster Admins will submit attendance records here</p>
-            </div>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2">
-              {clusters.map(cl => (
-                <div key={cl.id} className={`rounded-lg border p-4 ${cl.studentsTotal > 0 || cl.volunteersTotal > 0 ? 'bg-blue-50' : 'bg-white'}`}>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-medium">{cl.name}</div>
-                      {cl.studentsTotal > 0 && (
-                        <div className="text-xs text-muted-foreground">
-                          Students: <span className="font-semibold text-green-600">{cl.studentsPresent}</span> / {cl.studentsTotal}
-                        </div>
-                      )}
-                      {cl.volunteersTotal > 0 && (
-                        <div className="text-xs text-muted-foreground">
-                          Volunteers: <span className="font-semibold text-green-600">{cl.volunteersPresent}</span> / {cl.volunteersTotal}
-                        </div>
-                      )}
-                      {cl.studentsTotal === 0 && cl.volunteersTotal === 0 && (
-                        <div className="text-xs text-slate-400">Pending submissions</div>
-                      )}
-                    </div>
-                    <div>
-                      <button onClick={() => setOpenCluster(openCluster === cl.id ? null : cl.id)} className="text-sm text-primary">
-                        {openCluster === cl.id ? "Hide" : "View"}
-                      </button>
-                    </div>
-                  </div>
-                  {openCluster === cl.id && (
-                    <div className="mt-3 text-sm text-muted-foreground border-t pt-2">
-                      <div>Detailed records available in expanded view.</div>
-                    </div>
-                  )}
+
+          <div className="space-y-6">
+            {clusterData.map(({ cluster, dayData, hasAny }) => (
+              <div key={cluster.id} className="rounded-xl border shadow-sm overflow-hidden">
+                {/* Cluster header */}
+                <div className={`px-4 py-3 flex items-center justify-between ${hasAny ? "bg-blue-50 border-b border-blue-100" : "bg-slate-50 border-b"}`}>
+                  <span className="font-semibold text-base">{cluster.name}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${hasAny ? "bg-blue-100 text-blue-700" : "bg-slate-200 text-slate-500"}`}>
+                    {hasAny ? `${dayData.filter(d => d.submitted).length} day(s) submitted` : "Pending"}
+                  </span>
                 </div>
-              ))}
-            </div>
-          )}
+
+                {!hasAny && (
+                  <div className="px-4 py-4 text-xs text-slate-400 text-center">No submission yet from this cluster</div>
+                )}
+
+                {hasAny && (
+                  <div className="divide-y">
+                    {Array.from({ length: 8 }, (_, i) => i + 1).map(day => {
+                      const dd = dayData.find(d => d.day === day);
+                      if (!dd) return null;
+                      const isOpen = openCluster === `${cluster.id}-day${day}`;
+
+                      return (
+                        <div key={day}>
+                          <button
+                            className={`w-full px-4 py-3 flex items-center justify-between hover:bg-slate-50 transition-colors ${dd.submitted ? "" : "opacity-60"}`}
+                            onClick={() => setOpenCluster(isOpen ? null : `${cluster.id}-day${day}`)}
+                          >
+                            <div className="flex items-center gap-3 text-sm">
+                              <span className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold ${dd.submitted ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-400"}`}>{day}</span>
+                              <div className="text-left">
+                                <div className="font-medium">{dd.session ? `Day ${day} — ${dd.session.title}` : `Day ${day}`}</div>
+                                {dd.submitted && <div className="text-xs text-slate-500">Present: {dd.present} · Absent: {dd.absent} · Hw: {dd.hwCompleted} · {dd.total > 0 ? ((dd.present/dd.total)*100).toFixed(0) : 0}%</div>}
+                                {!dd.submitted && <div className="text-xs text-slate-400">Not submitted</div>}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {dd.submitted && <span className="text-[10px] text-slate-400">{dd.lastUpdate}</span>}
+                              <span className="text-primary text-xs">{isOpen ? "▲" : "▼"}</span>
+                            </div>
+                          </button>
+
+                          {/* Expanded Village/Standard View */}
+                          {isOpen && dd.submitted && (() => {
+                            const cPanchayats = s.panchayats.filter(p => p.clusterId === cluster.id);
+                            const cVillages = s.villages.filter(v => cPanchayats.some(p => p.id === v.panchayatId));
+                            return (
+                              <div className="bg-slate-50/80 px-4 pt-3 pb-4 border-t space-y-4">
+                                <div className="text-xs text-slate-500">
+                                  Submitted by: <strong>{dd.submittedBy}</strong>
+                                  {dd.lastUpdate && <span> · {dd.lastUpdate}</span>}
+                                </div>
+                                {cVillages.map(village => {
+                                  const vSchools = s.schools.filter(sc => sc.villageId === village.id);
+                                  const vStudents = s.students.filter(st => vSchools.some(sc => sc.id === st.schoolId));
+                                  if (vStudents.length === 0) return null;
+                                  const standards = [...new Set(vStudents.map(st => st.grade))].sort();
+                                  return (
+                                    <div key={village.id} className="rounded-lg border bg-white overflow-hidden">
+                                      <div className="bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">{village.name}</div>
+                                      {standards.map(std => {
+                                        const stdStudents = vStudents.filter(st => st.grade === std);
+                                        return (
+                                          <div key={std} className="border-t">
+                                            <div className="px-3 py-1.5 text-xs font-medium text-slate-600 bg-slate-50/60">Standard {std}</div>
+                                            <table className="w-full text-xs">
+                                              <thead><tr className="bg-slate-50/40 border-b">
+                                                <th className="px-3 py-1 text-left text-slate-400">S.No</th>
+                                                <th className="px-3 py-1 text-left text-slate-400">Student</th>
+                                                <th className="px-3 py-1 text-left text-slate-400">Mobile</th>
+                                                <th className="px-3 py-1 text-center text-slate-400">Attendance</th>
+                                                <th className="px-3 py-1 text-center text-slate-400">Homework</th>
+                                              </tr></thead>
+                                              <tbody>
+                                                {stdStudents.map((st, idx) => {
+                                                  const attStatus = (() => {
+                                                    for (const row of s.attendance.filter(a => (a as any).clusterId === cluster.id && a.type === "student" && (a as any).status === "Submitted")) {
+                                                      const d = (row as any).details;
+                                                      if (d && st.id in d) return d[st.id] as string;
+                                                    }
+                                                    return null;
+                                                  })();
+                                                  const hwStatus = (() => {
+                                                    for (const row of s.homework.filter(h => (h as any).clusterId === cluster.id && (h as any).status === "Submitted")) {
+                                                      const d = (row as any).details;
+                                                      if (d && st.id in d) return d[st.id] as string;
+                                                    }
+                                                    return null;
+                                                  })();
+                                                  return (
+                                                    <tr key={st.id} className="border-b hover:bg-slate-50/40">
+                                                      <td className="px-3 py-1.5 text-slate-400">{idx + 1}</td>
+                                                      <td className="px-3 py-1.5 font-medium">{st.name}</td>
+                                                      <td className="px-3 py-1.5 text-slate-500">{st.phone}</td>
+                                                      <td className="px-3 py-1.5 text-center">
+                                                        {attStatus
+                                                          ? <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-medium ${attStatus === "present" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-600"}`}>{attStatus === "present" ? "Present" : "Absent"}</span>
+                                                          : <span className="text-slate-300">—</span>}
+                                                      </td>
+                                                      <td className="px-3 py-1.5 text-center">
+                                                        {hwStatus
+                                                          ? <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-medium ${hwStatus === "completed" ? "bg-green-100 text-green-700" : "bg-orange-100 text-orange-600"}`}>{hwStatus === "completed" ? "Completed" : "Not Completed"}</span>
+                                                          : <span className="text-slate-300">—</span>}
+                                                      </td>
+                                                    </tr>
+                                                  );
+                                                })}
+                                              </tbody>
+                                            </table>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       </AppShell>
     );
@@ -280,6 +363,7 @@ function StudentsAttendancePage() {
       status: "Submitted",
       sessionId: selectedSession.id,
       clusterId: myClusterId,
+      submittedBy: user?.name ?? user?.email ?? "Cluster Admin",
       details,
     } as any);
 
@@ -296,6 +380,7 @@ function StudentsAttendancePage() {
       status: "Submitted",
       sessionId: selectedSession.id,
       clusterId: myClusterId,
+      submittedBy: user?.name ?? user?.email ?? "Cluster Admin",
       details: hwDetails,
     } as any);
 
@@ -323,28 +408,10 @@ function StudentsAttendancePage() {
                 </>
               ) : (
                 <>
-                  {/* 48hr window status or Complete Session action */}
-                  {selectedSession && !selectedSession.completedAt && isCluster && (
-                    <Button size="sm" onClick={completeSession}><CheckCircle className="h-4 w-4 mr-2" /> Complete Session</Button>
-                  )}
-                  {selectedSession?.completedAt && (
-                    <span className={`text-xs flex items-center gap-1 px-2 py-1 rounded-md ${canEdit ? "bg-green-50 text-green-700 border border-green-200" : "bg-slate-100 text-slate-500 border border-slate-200"}`}>
-                      {canEdit ? `⏱ Window: ${getWindowRemaining(selectedSession)}` : <><Lock className="h-3 w-3" /> Submission closed</>}
-                    </span>
-                  )}
-                  {canEdit && (
-                    <>
-                      <Button variant="outline" size="sm" onClick={() => handleMarkAll("absent")}><RotateCcw className="h-4 w-4 mr-2" /> Mark All Absent</Button>
-                      <Button variant="outline" size="sm" onClick={() => handleMarkAll("present")}><Users className="h-4 w-4 mr-2" /> Mark All Present</Button>
-                      <Button size="sm" onClick={handleSave}><Save className="h-4 w-4 mr-2" /> Save Draft</Button>
-                      <Button size="sm" onClick={handleSubmit}><Send className="h-4 w-4 mr-2" /> Submit Attendance</Button>
-                    </>
-                  )}
-
-                  {/* Request Reopen when locked (cluster admin) */}
-                  {isCluster && selectedSession?.completedAt && !windowOpen && !(selectedSession.reopenUntil && new Date(selectedSession.reopenUntil) > new Date()) && (
-                    <Button variant="outline" size="sm" className="text-amber-600 border-amber-300 hover:bg-amber-50" onClick={() => setReopenOpen(true)}><Unlock className="h-3.5 w-3.5 mr-1" /> Request Reopen</Button>
-                  )}
+                  <Button variant="outline" size="sm" onClick={() => handleMarkAll("absent")}><RotateCcw className="h-4 w-4 mr-2" /> Mark All Absent</Button>
+                  <Button variant="outline" size="sm" onClick={() => handleMarkAll("present")}><Users className="h-4 w-4 mr-2" /> Mark All Present</Button>
+                  <Button size="sm" onClick={handleSave}><Save className="h-4 w-4 mr-2" /> Save Draft</Button>
+                  <Button size="sm" onClick={handleSubmit}><Send className="h-4 w-4 mr-2" /> Submit Attendance</Button>
                 </>
               )}
             </div>
@@ -741,61 +808,6 @@ function StudentsAttendancePage() {
       </div>
     </div>
 
-    {/* Reopen Request Dialog */}
-    <Dialog open={reopenOpen} onOpenChange={setReopenOpen}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader><DialogTitle>Request Reopen — Day {selectedSession?.day} Attendance</DialogTitle></DialogHeader>
-        <div className="space-y-3">
-          <p className="text-xs text-muted-foreground">Submission window is closed. Super Admin can approve reopen for 24 hours.</p>
-          <div>
-            <Label>Reason <span className="text-destructive">*</span></Label>
-            <Select value={reopenReason} onValueChange={setReopenReason}>
-              <SelectTrigger className="mt-1"><SelectValue placeholder="Select reason" /></SelectTrigger>
-              <SelectContent>
-                {REOPEN_REASONS.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          {reopenReason === "Other" && (
-            <div>
-              <Label>Specify</Label>
-              <Textarea value={reopenOther} onChange={(e) => setReopenOther(e.target.value)} className="mt-1" rows={2} placeholder="Describe the reason..." />
-            </div>
-          )}
-        </div>
-        <div className="flex justify-end gap-2 mt-2">
-          <Button variant="outline" size="sm" onClick={() => setReopenOpen(false)}>Cancel</Button>
-          <Button size="sm" onClick={async () => {
-            if (!selectedSession) return;
-            const reason = reopenReason === "Other" ? reopenOther : reopenReason;
-            if (!reason) return toast.error("Please select a reason");
-            await s.upsert("approvals", {
-              id: newId(), type: "Reopen",
-              reference: `Day ${selectedSession.day} — Attendance`,
-              target: "Student",
-              requestedBy: user?.name ?? user?.email ?? "",
-              date: new Date().toISOString().slice(0, 10),
-              status: "Pending",
-              remarks: reason,
-              sessionId: selectedSession.id,
-              clusterId: selectedSession.clusterId,
-            } as ApprovalReq);
-            await s.upsert("notifications", {
-              id: newId(),
-              title: "Reopen request submitted",
-              body: `Reopen request for Day ${selectedSession.day} attendance has been sent to Super Admin.`,
-              type: "Reopen",
-              read: false,
-              at: new Date().toISOString(),
-            });
-            toast.success("Reopen request sent to Super Admin");
-            setReopenOpen(false);
-            setReopenReason("");
-            setReopenOther("");
-          }}>Send Request</Button>
-        </div>
-      </DialogContent>
-    </Dialog>
     </AppShell>
   );
 }
