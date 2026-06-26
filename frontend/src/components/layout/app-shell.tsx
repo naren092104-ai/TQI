@@ -24,7 +24,6 @@ const regularNav = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/clusters", label: "Clusters", icon: Network },
   { to: "/schools", label: "Schools", icon: School },
-  { to: "/colleges", label: "Colleges", icon: GraduationCap },
 ] as const;
 
 const expandableNav = [
