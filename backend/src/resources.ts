@@ -86,6 +86,20 @@ export const RESOURCE_MAP = {
     table: "auditLogs",
     columns: ["id", "user", "action", "at", "ip"],
   },
+  tqiReports: {
+    table: "tqiReports",
+    columns: [
+      "id", "clusterId", "clusterName", "collegeName", "spocName",
+      "sessionId", "sessionName", "day", "date", "academicYear",
+      "sessionObjective", "activitiesConducted", "keyLearningOutcomes",
+      "studentsPresent", "studentsAbsent", "totalVolunteers", "beneficiaries",
+      "studentParticipation", "volunteerParticipation",
+      "challengesFaced", "solutionsProvided", "futureActionPlan", "remarks",
+      "photos", "status", "submittedBy", "submittedAt", "pdfGeneratedAt",
+      "createdAt", "updatedAt",
+    ],
+    jsonColumns: ["photos"],
+  },
 } as const;
 
 export type ResourceName = keyof typeof RESOURCE_MAP;

@@ -149,6 +149,50 @@ export interface TimelineTask { id: ID; title: string; due: string; owner: strin
 export interface Notif { id: ID; title: string; body: string; type: "Finance" | "Refund" | "Timeline" | "Admin" | "Alert" | "Reopen"; read: boolean; at: string; }
 export interface AuditEntry { id: ID; user: string; action: string; at: string; ip: string; }
 
+// ── TQI Report types ───────────────────────────────────────────────────────
+export interface ReportPhoto {
+  id: ID;
+  name: string;
+  url: string;
+  path?: string;
+  uploadedAt?: string;
+  // local preview URL (not persisted)
+  localUrl?: string;
+}
+
+export interface TqiReport {
+  id: ID;
+  clusterId: ID;
+  clusterName: string;
+  collegeName: string;
+  spocName: string;
+  sessionId?: ID;
+  sessionName: string;
+  day: number;
+  date: string;
+  academicYear: string;
+  sessionObjective: string;
+  activitiesConducted: string;
+  keyLearningOutcomes: string;
+  studentsPresent: number;
+  studentsAbsent: number;
+  totalVolunteers: number;
+  beneficiaries: number;
+  studentParticipation: string;
+  volunteerParticipation: string;
+  challengesFaced: string;
+  solutionsProvided: string;
+  futureActionPlan: string;
+  remarks: string;
+  photos: ReportPhoto[];
+  status: "Draft" | "Submitted";
+  submittedBy?: string;
+  submittedAt?: string;
+  pdfGeneratedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 // ---- Seed ----
 const seed = () => {
   const academicYears: AcademicYear[] = [];
@@ -174,8 +218,9 @@ const seed = () => {
   const financeSettings: FinanceSettings[] = [{ id: "default", defaultFinancerName: "TQI Finance Team", lockAfterHours: 48 }];
   const financeSettingsDb: FinanceSettingsRecord[] = [];
   const reopenRequests: ReopenRequest[] = [];
+  const tqiReports: TqiReport[] = [];
 
-  return { academicYears, clusters, panchayats, villages, schools, colleges, admins, students, volunteers, sessions, attendance, homework, attendanceSubmissions, advances, expenses, refunds, approvals, timeline, notifications, auditLogs, financeSettings, financeSettingsDb, reopenRequests };
+  return { academicYears, clusters, panchayats, villages, schools, colleges, admins, students, volunteers, sessions, attendance, homework, attendanceSubmissions, advances, expenses, refunds, approvals, timeline, notifications, auditLogs, financeSettings, financeSettingsDb, reopenRequests, tqiReports };
 };
 
 interface DB extends ReturnType<typeof seed> {}
