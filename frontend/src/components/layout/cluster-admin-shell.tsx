@@ -89,8 +89,6 @@ function ClusterSidebarBody({ onNav }: { onNav?: () => void }) {
           <div className="truncate text-[11px] text-sidebar-foreground/60">Cluster Admin</div>
         </div>
       </div>
-        </div>
-      </div>
 
       {/* Cluster badge */}
       {user?.clusterId && (
