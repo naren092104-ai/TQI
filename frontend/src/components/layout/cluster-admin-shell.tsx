@@ -3,7 +3,7 @@ import { useState } from "react";
 import {
   LayoutDashboard, Users, HeartHandshake, ClipboardCheck,
   Wallet, Bell, Menu, LogOut,
-  Search, ChevronDown, ChevronRight, BookOpen,
+  Search, ChevronDown, ChevronRight, BookOpen, MapPin,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +23,7 @@ import { TqiLogoMark } from "@/lib/logo";
 // ── Cluster Admin nav — restricted ────────────────────────────────────────────
 const clusterNav = [
   { to: "/cluster-dashboard", label: "Dashboard",  icon: LayoutDashboard },
+  { to: "/panchayats",        label: "Panchayats", icon: MapPin },
   { to: "/students",          label: "Students",   icon: Users },
   { to: "/volunteers",        label: "Volunteers", icon: HeartHandshake },
   { to: "/sessions",          label: "Sessions",   icon: BookOpen },
