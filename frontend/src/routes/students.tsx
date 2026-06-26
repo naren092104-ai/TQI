@@ -303,6 +303,37 @@ function Page() {
         <KpiCard label="Schools" value={new Set(s.students.map(x => x.schoolId)).size} icon={Users} tone="success" />
       </div>
 
+      {/* Cluster summary cards — click to filter */}
+      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        {s.clusters.map((c) => {
+          const count = s.students.filter(st =>
+            st.clusterId === c.id || chain(st.schoolId).c?.id === c.id
+          ).length;
+          const active = filterCluster === c.id;
+          return (
+            <button
+              key={c.id}
+              onClick={() => { setFilterCluster(active ? "all" : c.id); setFilterPanchayat("all"); setFilterVillage("all"); setFilterSchool("all"); }}
+              className={`group flex items-center justify-between rounded-xl border px-4 py-3 text-left transition-all ${
+                active
+                  ? "border-primary bg-primary text-primary-foreground shadow-md"
+                  : "border-border bg-card hover:border-primary/50 hover:bg-primary/5"
+              }`}
+            >
+              <div className="min-w-0">
+                <div className={`truncate text-sm font-semibold ${active ? "text-primary-foreground" : "text-foreground"}`}>{c.name}</div>
+                <div className={`text-xs mt-0.5 ${active ? "text-primary-foreground/70" : "text-muted-foreground"}`}>{count} student{count !== 1 ? "s" : ""}</div>
+              </div>
+              <div className={`ml-3 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-base font-bold ${
+                active ? "bg-primary-foreground/20 text-primary-foreground" : "bg-muted text-foreground"
+              }`}>
+                {count}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
       {/* Table with cascade filters */}
       <DataTable
         exportName="students" rows={rows} searchKeys={["name", "phone", "rollNo"] as any}
@@ -364,8 +395,7 @@ function Page() {
               </button>
             ) : <span className="text-sm text-muted-foreground">—</span>;
           } },
-          { key: "attendance", header: "Attendance %", render: () => <span className="text-sm">—</span> },
-          { key: "homework", header: "Homework %", render: () => <span className="text-sm">—</span> },
+
           {
             key: "_act", header: "", className: "text-right", render: (r) => (
               <div className="flex justify-end gap-1">

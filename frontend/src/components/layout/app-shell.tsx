@@ -1,7 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useState } from "react";
 import {
-  LayoutDashboard, Network, School, GraduationCap,
+  LayoutDashboard, Network, GraduationCap,
   UserCog, Users, HeartHandshake, BookOpen, ClipboardCheck,
   Wallet, BarChart3, Bell, Settings, Menu, X, LogOut,
   Search, ChevronDown, ChevronRight,
@@ -23,7 +23,6 @@ import { TqiLogoMark } from "@/lib/logo";
 const regularNav = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/clusters", label: "Clusters", icon: Network },
-  { to: "/schools", label: "Schools", icon: School },
 ] as const;
 
 const expandableNav = [
