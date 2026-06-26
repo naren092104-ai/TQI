@@ -158,7 +158,18 @@ function Page() {
           { key: "year", header: "Year", render: (r) => r.year ? <Badge variant="outline">{yearLabel(r.year)}</Badge> : "—" },
           { key: "phone", header: "Mobile" },
           { key: "email", header: "Email" },
-          { key: "cluster", header: "Cluster", render: (r) => cName(r.clusterId) },
+          { key: "cluster", header: "Cluster", render: (r) => {
+            const name = cName(r.clusterId);
+            return (
+              <button
+                onClick={() => setFilterCluster(r.clusterId)}
+                className="rounded px-1.5 py-0.5 text-sm font-medium text-primary underline-offset-2 hover:underline focus:outline-none"
+                title={`Filter by ${name}`}
+              >
+                {name}
+              </button>
+            );
+          } },
           { key: "sessions", header: "Sessions", render: (r) => <Badge>{r.sessions}</Badge> },          {
             key: "_act", header: "", className: "text-right", render: (r) => (
               <div className="flex justify-end gap-1">

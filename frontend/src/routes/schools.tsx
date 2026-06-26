@@ -87,7 +87,19 @@ function Page() {
         columns={[
           { key: "name", header: "School", render: (r) => <span className="font-medium">{r.name}</span> },
           { key: "type", header: "Type", render: (r) => <Badge variant="outline">{r.type}</Badge> },
-          { key: "cluster", header: "Cluster", render: (r) => clusterName(r.villageId) },
+          { key: "cluster", header: "Cluster", render: (r) => {
+            const cId = (() => { const v = s.villages.find(vv => vv.id === r.villageId); const p = v ? s.panchayats.find(pp => pp.id === v.panchayatId) : null; return p?.clusterId ?? ""; })();
+            const name = clusterName(r.villageId);
+            return (
+              <button
+                onClick={() => setFilterCluster(cId)}
+                className="rounded px-1.5 py-0.5 text-sm font-medium text-primary underline-offset-2 hover:underline focus:outline-none"
+                title={`Filter by ${name}`}
+              >
+                {name}
+              </button>
+            );
+          } },
           { key: "panchayat", header: "Panchayat", render: (r) => panchayatName(r.villageId) },
           { key: "village", header: "Village", render: (r) => villageName(r.villageId) },
           { key: "_act", header: "", className: "text-right", render: (r) => (

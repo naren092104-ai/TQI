@@ -96,6 +96,7 @@ function Page() {
   const [view, setView] = useState<Student | null>(null);
 
   // ── Filters ──
+  const [filterCluster, setFilterCluster] = useState("all");
   const [filterPanchayat, setFilterPanchayat] = useState("all");
   const [filterVillage, setFilterVillage] = useState("all");
   const [filterSchool, setFilterSchool] = useState("all");
@@ -139,6 +140,9 @@ function Page() {
   // Filtered rows
   const rows = useMemo(() => {
     let r = s.students;
+    if (filterCluster !== "all") {
+      r = r.filter(st => st.clusterId === filterCluster || chain(st.schoolId).c?.id === filterCluster);
+    }
     if (filterPanchayat !== "all") {
       const vIds = s.villages.filter(v => v.panchayatId === filterPanchayat).map(v => v.id);
       const scIds = s.schools.filter(sc => vIds.includes(sc.villageId)).map(sc => sc.id);
@@ -151,7 +155,7 @@ function Page() {
     if (filterSchool !== "all") r = r.filter(st => st.schoolId === filterSchool);
     if (filterGrade !== "all") r = r.filter(st => st.grade === filterGrade);
     return r;
-  }, [s.students, s.villages, s.schools, filterPanchayat, filterVillage, filterSchool, filterGrade]);
+  }, [s.students, s.villages, s.schools, s.panchayats, s.clusters, filterCluster, filterPanchayat, filterVillage, filterSchool, filterGrade]);
 
   // ── Individual Save ──
   const saveStudent = async () => {
@@ -304,6 +308,13 @@ function Page() {
         exportName="students" rows={rows} searchKeys={["name", "phone", "rollNo"] as any}
         filterBar={
           <div className="flex flex-wrap gap-2">
+            <Select value={filterCluster} onValueChange={(v) => { setFilterCluster(v); setFilterPanchayat("all"); setFilterVillage("all"); setFilterSchool("all"); }}>
+              <SelectTrigger className="h-9 w-40"><SelectValue placeholder="Cluster" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Clusters</SelectItem>
+                {s.clusters.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
             <Select value={filterPanchayat} onValueChange={(v) => { setFilterPanchayat(v); setFilterVillage("all"); setFilterSchool("all"); }}>
               <SelectTrigger className="h-9 w-40"><SelectValue placeholder="Panchayat" /></SelectTrigger>
               <SelectContent>
@@ -341,6 +352,18 @@ function Page() {
           { key: "school", header: "School", render: (r) => <span className="text-sm">{chain(r.schoolId).sc?.name ?? "—"}</span> },
           { key: "village", header: "Village", render: (r) => <span className="text-sm text-muted-foreground">{chain(r.schoolId).v?.name ?? "—"}</span> },
           { key: "panchayat", header: "Panchayat", render: (r) => <span className="text-sm text-muted-foreground">{chain(r.schoolId).p?.name ?? "—"}</span> },
+          { key: "cluster", header: "Cluster", render: (r) => {
+            const c = chain(r.schoolId).c;
+            return c ? (
+              <button
+                onClick={() => { setFilterCluster(c.id); setFilterPanchayat("all"); setFilterVillage("all"); setFilterSchool("all"); }}
+                className="rounded px-1.5 py-0.5 text-sm font-medium text-primary underline-offset-2 hover:underline focus:outline-none"
+                title={`Filter by ${c.name}`}
+              >
+                {c.name}
+              </button>
+            ) : <span className="text-sm text-muted-foreground">—</span>;
+          } },
           { key: "attendance", header: "Attendance %", render: () => <span className="text-sm">—</span> },
           { key: "homework", header: "Homework %", render: () => <span className="text-sm">—</span> },
           {
