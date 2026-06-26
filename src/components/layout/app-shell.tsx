@@ -1,10 +1,9 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useState } from "react";
 import {
-  LayoutDashboard, Calendar, Network, MapPin, Trees, School, GraduationCap,
-  UserCog, Users, HeartHandshake, BookOpen, ClipboardCheck, BookCheck,
-  Wallet, Banknote, Undo2, ShieldCheck, BarChart3, Bell, Activity,
-  ScrollText, Settings, Menu, X, LogOut, Search, ChevronDown,
+  LayoutDashboard, Network, School, GraduationCap,
+  UserCog, Users, HeartHandshake, BookOpen, ClipboardCheck,
+  Wallet, BarChart3, Bell, Settings, Menu, X, LogOut, Search, ChevronDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,37 +16,35 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { TqiLogoMark } from "@/lib/logo";
 
 const nav = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/academic-years", label: "Academic Years", icon: Calendar },
-  { to: "/clusters", label: "Clusters", icon: Network },
-  { to: "/schools", label: "Schools", icon: School },
-  { to: "/colleges", label: "Colleges", icon: GraduationCap },
-  { to: "/admins", label: "Admins", icon: UserCog },
-  { to: "/students", label: "Students", icon: Users },
-  { to: "/volunteers", label: "Volunteers", icon: HeartHandshake },
-  { to: "/sessions", label: "Sessions", icon: BookOpen },
-  { to: "/attendance", label: "Attendance", icon: ClipboardCheck },
-  { to: "/homework", label: "Homework", icon: BookCheck },
-  { to: "/finance", label: "Finance", icon: Wallet },
-  { to: "/advance", label: "Advance", icon: Banknote },
-  { to: "/refunds", label: "Refunds", icon: Undo2 },
-  { to: "/approvals", label: "Approvals", icon: ShieldCheck },
-  { to: "/reports", label: "Reports", icon: BarChart3 },
-  { to: "/notifications", label: "Notifications", icon: Bell },
-  { to: "/timeline", label: "Timeline", icon: Activity },
-  { to: "/audit-logs", label: "Audit Logs", icon: ScrollText },
-  { to: "/settings", label: "Settings", icon: Settings },
+  { to: "/",              label: "Dashboard",       icon: LayoutDashboard },
+  { to: "/clusters",      label: "Clusters",         icon: Network },
+  { to: "/schools",       label: "Schools",          icon: School },
+  { to: "/colleges",      label: "Colleges",         icon: GraduationCap },
+  { to: "/admins",        label: "User Management",  icon: UserCog },
+  { to: "/students",      label: "Students",         icon: Users },
+  { to: "/volunteers",    label: "Volunteers",       icon: HeartHandshake },
+  { to: "/sessions",      label: "Sessions",         icon: BookOpen },
+  { to: "/attendance",    label: "Attendance",       icon: ClipboardCheck },
+  { to: "/finance",       label: "Finance",          icon: Wallet },
+  { to: "/reports",       label: "Reports",          icon: BarChart3 },
+  { to: "/notifications", label: "Notifications",    icon: Bell },
+  { to: "/settings",      label: "Settings",         icon: Settings },
 ] as const;
 
 function SidebarBody({ onNav }: { onNav?: () => void }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   return (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
-      <div className="flex h-16 shrink-0 items-center gap-3 border-b border-sidebar-border px-5">
-        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg gradient-secondary font-black text-sidebar-primary-foreground">
-          T
+      <div className="flex h-16 shrink-0 items-center gap-3 border-b border-sidebar-border px-4">
+        <TqiLogoMark size={38} className="shrink-0" />
+        <div className="min-w-0">
+          <div className="truncate text-sm font-bold">TQI Admin</div>
+          <div className="truncate text-[11px] text-sidebar-foreground/60">Command Center</div>
+        </div>
+      </div>
         </div>
         <div className="min-w-0">
           <div className="truncate text-sm font-bold">TQI Admin</div>
