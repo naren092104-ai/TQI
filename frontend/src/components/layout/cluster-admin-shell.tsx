@@ -3,7 +3,7 @@ import { useState } from "react";
 import {
   LayoutDashboard, Users, HeartHandshake, ClipboardCheck,
   Wallet, Bell, Menu, LogOut,
-  Search, ChevronDown, ChevronRight, BookOpen, MapPin,
+  Search, ChevronDown, ChevronRight, BookOpen, MapPin, FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,6 +47,11 @@ const clusterFinanceNav = [
 
 const clusterMoreNav = [
   { to: "/notifications", label: "Notifications", icon: Bell },
+] as const;
+
+const clusterReportsNav = [
+  { to: "/tqi-reports/create",    label: "Create Report",      icon: FileText },
+  { to: "/tqi-reports/submitted", label: "Submitted Reports",  icon: FileText },
 ] as const;
 
 function ClusterSidebarBody({ onNav }: { onNav?: () => void }) {
@@ -161,6 +166,12 @@ function ClusterSidebarBody({ onNav }: { onNav?: () => void }) {
         </div>
         {clusterFinanceNav.map((item) => <NavLink key={item.to} {...item} />)}
 
+        {/* Reports */}
+        <div className="mt-4 px-3 pb-1 text-xs font-semibold uppercase tracking-[0.12em] text-sidebar-foreground/50">
+          Reports
+        </div>
+        {clusterReportsNav.map((item) => <NavLink key={item.to} {...item} />)}
+
         {/* More */}
         <div className="mt-4 px-3 pb-1 text-xs font-semibold uppercase tracking-[0.12em] text-sidebar-foreground/50">
           More
@@ -194,6 +205,7 @@ export function ClusterAdminShell({ children }: { children: React.ReactNode }) {
     ...clusterNav,
     ...clusterExpandableNav.flatMap(e => e.children),
     ...clusterFinanceNav,
+    ...clusterReportsNav,
     ...clusterMoreNav,
   ];
   const currentLabel = allNav.find(

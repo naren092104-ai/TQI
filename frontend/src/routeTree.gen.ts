@@ -35,6 +35,7 @@ import { Route as AdminsRouteImport } from './routes/admins'
 import { Route as AcademicYearsRouteImport } from './routes/academic-years'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as TqiReportsIndexRouteImport } from './routes/tqi-reports/index'
+import { Route as TqiReportsSubmittedRouteImport } from './routes/tqi-reports/submitted'
 import { Route as TqiReportsCreateRouteImport } from './routes/tqi-reports/create'
 import { Route as AttendanceVolunteersRouteImport } from './routes/attendance/volunteers'
 import { Route as AttendanceStudentsRouteImport } from './routes/attendance/students'
@@ -172,6 +173,11 @@ const TqiReportsIndexRoute = TqiReportsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => TqiReportsRoute,
 } as any)
+const TqiReportsSubmittedRoute = TqiReportsSubmittedRouteImport.update({
+  id: '/submitted',
+  path: '/submitted',
+  getParentRoute: () => TqiReportsRoute,
+} as any)
 const TqiReportsCreateRoute = TqiReportsCreateRouteImport.update({
   id: '/create',
   path: '/create',
@@ -235,6 +241,7 @@ export interface FileRoutesByFullPath {
   '/attendance/students': typeof AttendanceStudentsRoute
   '/attendance/volunteers': typeof AttendanceVolunteersRoute
   '/tqi-reports/create': typeof TqiReportsCreateRoute
+  '/tqi-reports/submitted': typeof TqiReportsSubmittedRoute
   '/tqi-reports/': typeof TqiReportsIndexRoute
 }
 export interface FileRoutesByTo {
@@ -268,6 +275,7 @@ export interface FileRoutesByTo {
   '/attendance/students': typeof AttendanceStudentsRoute
   '/attendance/volunteers': typeof AttendanceVolunteersRoute
   '/tqi-reports/create': typeof TqiReportsCreateRoute
+  '/tqi-reports/submitted': typeof TqiReportsSubmittedRoute
   '/tqi-reports': typeof TqiReportsIndexRoute
 }
 export interface FileRoutesById {
@@ -303,6 +311,7 @@ export interface FileRoutesById {
   '/attendance/students': typeof AttendanceStudentsRoute
   '/attendance/volunteers': typeof AttendanceVolunteersRoute
   '/tqi-reports/create': typeof TqiReportsCreateRoute
+  '/tqi-reports/submitted': typeof TqiReportsSubmittedRoute
   '/tqi-reports/': typeof TqiReportsIndexRoute
 }
 export interface FileRouteTypes {
@@ -339,6 +348,7 @@ export interface FileRouteTypes {
     | '/attendance/students'
     | '/attendance/volunteers'
     | '/tqi-reports/create'
+    | '/tqi-reports/submitted'
     | '/tqi-reports/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -372,6 +382,7 @@ export interface FileRouteTypes {
     | '/attendance/students'
     | '/attendance/volunteers'
     | '/tqi-reports/create'
+    | '/tqi-reports/submitted'
     | '/tqi-reports'
   id:
     | '__root__'
@@ -406,6 +417,7 @@ export interface FileRouteTypes {
     | '/attendance/students'
     | '/attendance/volunteers'
     | '/tqi-reports/create'
+    | '/tqi-reports/submitted'
     | '/tqi-reports/'
   fileRoutesById: FileRoutesById
 }
@@ -621,6 +633,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TqiReportsIndexRouteImport
       parentRoute: typeof TqiReportsRoute
     }
+    '/tqi-reports/submitted': {
+      id: '/tqi-reports/submitted'
+      path: '/submitted'
+      fullPath: '/tqi-reports/submitted'
+      preLoaderRoute: typeof TqiReportsSubmittedRouteImport
+      parentRoute: typeof TqiReportsRoute
+    }
     '/tqi-reports/create': {
       id: '/tqi-reports/create'
       path: '/create'
@@ -688,11 +707,13 @@ const AttendanceRouteWithChildren = AttendanceRoute._addFileChildren(
 
 interface TqiReportsRouteChildren {
   TqiReportsCreateRoute: typeof TqiReportsCreateRoute
+  TqiReportsSubmittedRoute: typeof TqiReportsSubmittedRoute
   TqiReportsIndexRoute: typeof TqiReportsIndexRoute
 }
 
 const TqiReportsRouteChildren: TqiReportsRouteChildren = {
   TqiReportsCreateRoute: TqiReportsCreateRoute,
+  TqiReportsSubmittedRoute: TqiReportsSubmittedRoute,
   TqiReportsIndexRoute: TqiReportsIndexRoute,
 }
 

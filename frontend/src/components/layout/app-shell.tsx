@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Network, GraduationCap,
   UserCog, Users, HeartHandshake, BookOpen, ClipboardCheck,
   Wallet, BarChart3, Bell, Settings, Menu, X, LogOut,
-  Search, ChevronDown, ChevronRight,
+  Search, ChevronDown, ChevronRight, FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,6 +35,14 @@ const expandableNav = [
       { to: "/attendance/homework", label: "Homework" },
     ],
   },
+  {
+    label: "Reports",
+    icon: BarChart3,
+    children: [
+      { to: "/reports",                label: "Report Builder" },
+      { to: "/tqi-reports/submitted",  label: "TQI Session Reports" },
+    ],
+  },
 ] as const;
 
 const moreNav = [
@@ -43,14 +51,13 @@ const moreNav = [
   { to: "/volunteers",    label: "Volunteers",        icon: HeartHandshake },
   { to: "/sessions",      label: "Sessions",          icon: BookOpen },
   { to: "/finance",       label: "Finance",           icon: Wallet },
-  { to: "/reports",       label: "Reports",           icon: BarChart3 },
   { to: "/notifications", label: "Notifications",     icon: Bell },
   { to: "/settings",      label: "Settings",          icon: Settings },
 ] as const;
 
 function SidebarBody({ onNav }: { onNav?: () => void }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({ Attendance: false });
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({ Attendance: false, Reports: false });
 
   return (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
