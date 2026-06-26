@@ -9,6 +9,7 @@ import { Progress } from "@/components/ui/progress";
 import { useStore, newId, type AttendanceSubmission } from "@/lib/store";
 import { useAuth, isClusterAdmin, isSuperAdmin } from "@/lib/auth";
 import { toast } from "sonner";
+import { exportAttendancePdf, exportAttendanceExcel } from "@/lib/api-exports";
 import {
   Users, CheckCircle, XCircle, Clock, Download,
   RotateCcw, Save, Send, Search, Eye, TrendingUp,
@@ -158,8 +159,26 @@ function SuperAdminStudentsView() {
               <p className="text-sm text-muted-foreground">{selectedCluster.name} · {fmtDate(sub.date)}</p>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" size="sm"><Download className="h-4 w-4 mr-1" />Export PDF</Button>
-              <Button variant="outline" size="sm"><Download className="h-4 w-4 mr-1" />Export Excel</Button>
+              <Button variant="outline" size="sm" onClick={() => {
+                toast.promise(
+                  exportAttendancePdf(selectedCluster.id, sub.session_id, `Day ${sub.day}`),
+                  {
+                    loading: "Generating PDF...",
+                    success: "PDF exported",
+                    error: (err) => `Failed: ${err.message}`,
+                  }
+                );
+              }}><Download className="h-4 w-4 mr-1" />Export PDF</Button>
+              <Button variant="outline" size="sm" onClick={() => {
+                toast.promise(
+                  exportAttendanceExcel(selectedCluster.id, sub.session_id, `Day ${sub.day}`),
+                  {
+                    loading: "Generating Excel...",
+                    success: "Excel exported",
+                    error: (err) => `Failed: ${err.message}`,
+                  }
+                );
+              }}><Download className="h-4 w-4 mr-1" />Export Excel</Button>
             </div>
           </div>
           {/* Summary cards */}
@@ -266,8 +285,26 @@ function SuperAdminStudentsView() {
               <p className="text-sm text-muted-foreground">{clusterSubs.length} day(s) submitted</p>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" size="sm"><Download className="h-4 w-4 mr-1" />Export Excel</Button>
-              <Button variant="outline" size="sm"><Download className="h-4 w-4 mr-1" />Export PDF</Button>
+              <Button variant="outline" size="sm" onClick={() => {
+                toast.promise(
+                  exportAttendanceExcel(selectedCluster.id),
+                  {
+                    loading: "Generating Excel...",
+                    success: "Excel exported",
+                    error: (err) => `Failed: ${err.message}`,
+                  }
+                );
+              }}><Download className="h-4 w-4 mr-1" />Export Excel</Button>
+              <Button variant="outline" size="sm" onClick={() => {
+                toast.promise(
+                  exportAttendancePdf(selectedCluster.id),
+                  {
+                    loading: "Generating PDF...",
+                    success: "PDF exported",
+                    error: (err) => `Failed: ${err.message}`,
+                  }
+                );
+              }}><Download className="h-4 w-4 mr-1" />Export PDF</Button>
             </div>
           </div>
           {/* Cluster KPI */}
@@ -886,8 +923,26 @@ function StudentsAttendancePage() {
         </div>
 
         <div className="mt-4 flex gap-2 justify-end">
-          <Button variant="outline" size="sm"><Download className="h-4 w-4 mr-2" />Export Excel</Button>
-          <Button variant="outline" size="sm"><Download className="h-4 w-4 mr-2" />Export PDF</Button>
+          <Button variant="outline" size="sm" onClick={() => {
+            toast.promise(
+              exportAttendanceExcel(selectedCluster.id, selectedSession?.id),
+              {
+                loading: "Generating Excel...",
+                success: "Excel exported",
+                error: (err) => `Failed: ${err.message}`,
+              }
+            );
+          }}><Download className="h-4 w-4 mr-2" />Export Excel</Button>
+          <Button variant="outline" size="sm" onClick={() => {
+            toast.promise(
+              exportAttendancePdf(selectedCluster.id, selectedSession?.id),
+              {
+                loading: "Generating PDF...",
+                success: "PDF exported",
+                error: (err) => `Failed: ${err.message}`,
+              }
+            );
+          }}><Download className="h-4 w-4 mr-2" />Export PDF</Button>
         </div>
       </div>
     </div>

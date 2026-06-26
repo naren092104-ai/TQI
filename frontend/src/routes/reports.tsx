@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { BarChart3, FileSpreadsheet, FileText, FileDown } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { downloadMock, toCSV } from "@/lib/format";
+import { exportReportPdf, exportReportExcel } from "@/lib/api-exports";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/reports")({
@@ -29,20 +30,29 @@ function Page() {
   const [to, setTo] = useState("");
 
   const exp = (fmt: "pdf" | "xlsx" | "csv") => {
-    const data = (() => {
-      if (type.startsWith("Student")) return s.students;
-      if (type.startsWith("Volunteer")) return s.volunteers;
-      if (type.startsWith("Attendance")) return s.attendance;
-      if (type.startsWith("Homework")) return s.homework;
-      if (type.startsWith("Finance")) return s.expenses;
-      if (type.startsWith("Advance")) return s.advances;
-      if (type.startsWith("Refund")) return s.refunds;
-      if (type.startsWith("Cluster")) return s.clusters;
-      return s.academicYears;
-    })() as any[];
-    const ext = fmt === "xlsx" ? "xlsx" : fmt;
-    downloadMock(`${type.replace(/\s+/g,"-").toLowerCase()}.${ext}`, fmt === "csv" ? toCSV(data) : `Mock ${type} ${fmt.toUpperCase()}`, fmt === "csv" ? "text/csv" : fmt === "pdf" ? "application/pdf" : "application/vnd.ms-excel");
-    toast.success(`Exported ${fmt.toUpperCase()}`);
+    if (fmt === "csv") {
+      const data = (() => {
+        if (type.startsWith("Student")) return s.students;
+        if (type.startsWith("Volunteer")) return s.volunteers;
+        if (type.startsWith("Attendance")) return s.attendance;
+        if (type.startsWith("Homework")) return s.homework;
+        if (type.startsWith("Finance")) return s.expenses;
+        if (type.startsWith("Advance")) return s.advances;
+        if (type.startsWith("Refund")) return s.refunds;
+        if (type.startsWith("Cluster")) return s.clusters;
+        return s.academicYears;
+      })() as any[];
+      downloadMock(`${type.replace(/\s+/g,"-").toLowerCase()}.csv`, toCSV(data), "text/csv");
+      toast.success("Exported CSV");
+      return;
+    }
+
+    // For PDF/XLSX, call backend
+    if (fmt === "pdf") {
+      toast.promise(exportReportPdf(type), { loading: "Generating PDF...", success: "PDF exported", error: (e) => `Failed: ${e.message}` });
+    } else {
+      toast.promise(exportReportExcel(type), { loading: "Generating Excel...", success: "Excel exported", error: (e) => `Failed: ${e.message}` });
+    }
   };
 
   return (

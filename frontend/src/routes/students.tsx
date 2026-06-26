@@ -18,6 +18,7 @@ import { useStore, newId, type Student } from "@/lib/store";
 import { useAuth, isAdmin } from "@/lib/auth";
 import { toast } from "sonner";
 import { downloadMock, toCSV } from "@/lib/format";
+import { exportStudentsPdf, exportStudentsExcel } from "@/lib/api-exports";
 
 export const Route = createFileRoute("/students")({
   head: () => ({ meta: [{ title: "Students — TQI Admin" }] }),
@@ -26,25 +27,16 @@ export const Route = createFileRoute("/students")({
 
 const STANDARDS = ["9", "10", "11", "12"] as const;
 
-// Excel export helper (CSV with .xlsx extension for Excel compatibility)
-function exportToExcel(rows: Student[], getChain: (id: string) => any) {
-  const data = rows.map((st) => {
-    const { sc, v, p, c } = getChain(st.schoolId);
-    return {
-      "Student Name": st.name,
-      "Mobile Number": st.phone,
-      "Standard": st.grade,
-      "School": sc?.name ?? "—",
-      "Village": v?.name ?? "—",
-      "Panchayat": p?.name ?? "—",
-      "Cluster": c?.name ?? "—",
-      "Gender": st.gender === "M" ? "Male" : "Female",
-      "Roll No": st.rollNo,
-      "Status": st.status ?? "Active",
-    };
-  });
-  downloadMock("students_export.csv", toCSV(data), "text/csv");
-  toast.success(`Exported ${data.length} students to Excel`);
+// Excel export helper - now calls backend
+function handleExportExcel(clusterId?: string, schoolId?: string) {
+  toast.promise(
+    exportStudentsExcel(clusterId, schoolId),
+    {
+      loading: "Generating Excel file...",
+      success: "Students exported successfully",
+      error: (err) => `Failed to export: ${err.message}`,
+    }
+  );
 }
 
 // Download blank template (only 3 columns needed)
@@ -281,8 +273,20 @@ function Page() {
               <Button variant="outline" onClick={downloadTemplate}>
                 <Download className="h-4 w-4" /> Download Template
               </Button>
-              <Button variant="outline" onClick={() => exportToExcel(rows, chain)}>
+              <Button variant="outline" onClick={() => handleExportExcel(filterCluster !== "all" ? filterCluster : undefined, filterSchool !== "all" ? filterSchool : undefined)}>
                 <FileSpreadsheet className="h-4 w-4" /> Export Excel
+              </Button>
+              <Button variant="outline" onClick={() => {
+                toast.promise(
+                  exportStudentsPdf(filterCluster !== "all" ? filterCluster : undefined, filterSchool !== "all" ? filterSchool : undefined),
+                  {
+                    loading: "Generating PDF...",
+                    success: "PDF exported successfully",
+                    error: (err) => `Failed: ${err.message}`,
+                  }
+                );
+              }}>
+                <Download className="h-4 w-4" /> Export PDF
               </Button>
               <Button variant="outline" onClick={() => { resetBulk(); setBulkOpen(true); }}>
                 <Upload className="h-4 w-4" /> Bulk Upload

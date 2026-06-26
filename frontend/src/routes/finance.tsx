@@ -20,6 +20,7 @@ import { useStore, newId, type Expense, type Bill, type FinanceSettingsRecord } 
 import { useAuth, isSuperAdmin, isClusterAdmin } from "@/lib/auth";
 import { inr } from "@/lib/format";
 import { toast } from "sonner";
+import { exportFinancePdf, exportFinanceExcel } from "@/lib/api-exports";
 
 export const Route = createFileRoute("/finance")({
   head: () => ({ meta: [{ title: "Finance — TQI" }] }),
@@ -185,15 +186,32 @@ ${volunteers.length > 0 ? `<h3>Volunteer List</h3><table><thead><tr>${th("S.No")
 
 function printFinancePdf(form: FinanceForm, volunteers: {name:string;college?:string;year?:string}[], settings: FinanceSettingsRecord | null, advance: number, balance: number) {
   const html = buildPdf(form, volunteers, settings, advance, balance);
-  // Try popup first; fall back to blob download if blocked
-  const win = window.open("", "_blank", "noopener,noreferrer,width=960,height=720");
-  if (win) {
-    win.document.write(html);
-    win.document.close();
-    win.focus();
-    setTimeout(() => win.print(), 600);
-  } else {
-    // Fallback: open as blob URL in same tab
+  try {
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentDocument || iframe.contentWindow?.document;
+    if (!doc) throw new Error("Print frame unavailable");
+    doc.open();
+    doc.write(html);
+    doc.close();
+
+    iframe.onload = () => {
+      try { iframe.contentWindow?.focus(); iframe.contentWindow?.print(); }
+      finally { setTimeout(() => { if (document.body.contains(iframe)) document.body.removeChild(iframe); }, 500); }
+    };
+
+    // Safety fallback
+    setTimeout(() => { try { iframe.contentWindow?.focus(); iframe.contentWindow?.print(); } catch {} finally { if (document.body.contains(iframe)) document.body.removeChild(iframe); } }, 700);
+  } catch (err) {
+    console.error("Print failed:", err);
+    // As last resort, open HTML in new tab
     const blob = new Blob([html], { type: "text/html" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -557,8 +575,26 @@ function FinancePage() {
             <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
               <h2 className="text-lg font-bold">{exp.sessionName || `Day ${exp.sessionDay}`} — Finance Audit</h2>
               <div className="flex gap-2 flex-wrap">
-                <Button variant="outline" size="sm" onClick={() => printFinancePdf(formData, clusterVols, savedSettings, adv, bal)}><Download className="h-4 w-4 mr-1" />Export PDF</Button>
-                <Button variant="outline" size="sm"><Download className="h-4 w-4 mr-1" />Export Excel</Button>
+                <Button variant="outline" size="sm" onClick={() => {
+                  toast.promise(
+                    exportFinancePdf(exp.clusterId, exp.sessionId, [exp.id]),
+                    {
+                      loading: "Generating PDF...",
+                      success: "PDF exported successfully",
+                      error: (err) => `Failed: ${err.message}`,
+                    }
+                  );
+                }}><Download className="h-4 w-4 mr-1" />Export PDF</Button>
+                <Button variant="outline" size="sm" onClick={() => {
+                  toast.promise(
+                    exportFinanceExcel(exp.clusterId, exp.sessionId, [exp.id]),
+                    {
+                      loading: "Generating Excel...",
+                      success: "Excel exported successfully",
+                      error: (err) => `Failed: ${err.message}`,
+                    }
+                  );
+                }}><Download className="h-4 w-4 mr-1" />Export Excel</Button>
                 {exp.status==="Submitted" && <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white" onClick={()=>handleStatusChange("Approved")}><CheckCircle className="h-4 w-4 mr-1"/>Approve</Button>}
                 {exp.status==="Submitted" && <Button size="sm" variant="destructive" onClick={()=>handleStatusChange("Rejected")}><XCircle className="h-4 w-4 mr-1"/>Reject</Button>}
                 {(exp.status==="Submitted"||exp.status==="Approved") && <Button size="sm" variant="outline" onClick={()=>handleStatusChange("Locked")}><Lock className="h-4 w-4 mr-1"/>Lock</Button>}
@@ -658,22 +694,15 @@ function FinancePage() {
                       <div className="flex gap-1">
                         {exp.status==="Pending"&&<Button variant="ghost" size="icon" className="h-7 w-7" title="Edit" onClick={()=>openEdit(exp)}><Pencil className="h-3.5 w-3.5"/></Button>}
                         <Button variant="ghost" size="icon" className="h-7 w-7" title="Export PDF" onClick={() => {
-                          const advAmt = s.advances.filter(a=>a.clusterId===exp.clusterId).sort((a,b)=>new Date(b.date).getTime()-new Date(a.date).getTime())[0]?.amount??0;
-                          const formData: FinanceForm = {
-                            clusterName: exp.clusterName??"", collegeName: exp.collegeName??"",
-                            sessionName: exp.sessionName??exp.description??"", sessionDay: exp.sessionDay??1,
-                            date: exp.date, spocName: exp.spocName??exp.submittedBy??"",
-                            financerName: exp.financerName??"", volunteersCount: exp.volunteerCount??0,
-                            travelEntries: (exp.travelEntries as TravelEntry[])??[],
-                            foodEntries: (exp.foodEntries as FoodEntry[])??FOOD_CATEGORIES.map(c=>({id:newId(),category:c,count:0,amount:0,bills:[]})),
-                            stationeryEntries: (exp.stationeryEntries as StationeryEntry[])??[],
-                            stationeryBills: exp.stationeryBills??[],
-                            otherEntries: (exp.otherEntries as OtherEntry[])??[],
-                          };
-                          const vols = s.volunteers.filter(v=>v.clusterId===myClusterId);
-                          const settings = s.financeSettingsDb?.[0]??null;
-                          const bal = advAmt - (exp.grandTotal||exp.amount||0);
-                          printFinancePdf(formData, vols, settings, advAmt, bal);
+                          // Use backend export endpoint to generate and download PDF for this expense
+                          toast.promise(
+                            exportFinancePdf(exp.clusterId ?? undefined, undefined, [exp.id]),
+                            {
+                              loading: 'Generating PDF...',
+                              success: 'Download started',
+                              error: (err) => `Export failed: ${err?.message ?? err}`,
+                            }
+                          ).catch(() => {});
                         }}><Download className="h-3.5 w-3.5"/></Button>
                       </div>
                     </td>

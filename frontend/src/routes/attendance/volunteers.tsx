@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useStore, newId } from "@/lib/store";
 import { useAuth, isClusterAdmin, isSuperAdmin } from "@/lib/auth";
 import { toast } from "sonner";
+import { exportAttendancePdf, exportAttendanceExcel } from "@/lib/api-exports";
 import {
   Users, CheckCircle, XCircle, Clock, Download,
   RotateCcw, Save, Send, Search, Eye, TrendingUp,
@@ -133,8 +134,8 @@ function SuperAdminVolunteersView() {
               <p className="text-sm text-muted-foreground">{selectedCluster.name} · {fmtDate(sub.date)}</p>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" size="sm"><Download className="h-4 w-4 mr-1" />Export PDF</Button>
-              <Button variant="outline" size="sm"><Download className="h-4 w-4 mr-1" />Export Excel</Button>
+              <Button variant="outline" size="sm" onClick={() => toast.promise(exportAttendancePdf(selectedCluster.id), {loading: 'Generating PDF...', success: 'PDF exported', error: (e)=>`Failed: ${e.message}`})}><Download className="h-4 w-4 mr-1" />Export PDF</Button>
+              <Button variant="outline" size="sm" onClick={() => toast.promise(exportAttendanceExcel(selectedCluster.id), {loading: 'Generating Excel...', success: 'Excel exported', error: (e)=>`Failed: ${e.message}`})}><Download className="h-4 w-4 mr-1" />Export Excel</Button>
             </div>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">

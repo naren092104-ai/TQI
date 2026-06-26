@@ -266,21 +266,31 @@ const PDF_CSS = `
 export function printTqiReport(report: TqiReport): boolean {
   const html = buildTqiReportHtml(report);
   const title = `TQI Report — ${report.clusterName ?? ""} Day ${report.day ?? ""}`;
+  try {
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    document.body.appendChild(iframe);
 
-  const win = window.open("", "_blank", "noopener,noreferrer,width=950,height=750");
-  if (!win) return false;
+    const doc = iframe.contentDocument || iframe.contentWindow?.document;
+    if (!doc) return false;
+    doc.open();
+    doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title><style>${PDF_CSS}</style></head><body>${html}</body></html>`);
+    doc.close();
 
-  win.document.write(`<!DOCTYPE html>
-<html><head>
-  <meta charset="utf-8">
-  <title>${title}</title>
-  <style>${PDF_CSS}</style>
-</head><body>${html}</body></html>`);
-  win.document.close();
-  win.focus();
-  setTimeout(() => {
-    win.print();
-    win.close();
-  }, 600);
-  return true;
+    iframe.onload = () => {
+      try { iframe.contentWindow?.focus(); iframe.contentWindow?.print(); }
+      finally { setTimeout(() => { if (document.body.contains(iframe)) document.body.removeChild(iframe); }, 500); }
+    };
+
+    setTimeout(() => { try { iframe.contentWindow?.focus(); iframe.contentWindow?.print(); } catch {} finally { if (document.body.contains(iframe)) document.body.removeChild(iframe); } }, 700);
+    return true;
+  } catch (err) {
+    console.error("Print failed:", err);
+    return false;
+  }
 }

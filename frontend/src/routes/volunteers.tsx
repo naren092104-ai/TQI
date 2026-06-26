@@ -18,6 +18,7 @@ import { useStore, newId, type Volunteer } from "@/lib/store";
 import { useAuth, isClusterAdmin } from "@/lib/auth";
 import { toast } from "sonner";
 import { downloadMock, toCSV } from "@/lib/format";
+import { exportVolunteersPdf, exportVolunteersExcel } from "@/lib/api-exports";
 
 export const Route = createFileRoute("/volunteers")({
   head: () => ({ meta: [{ title: "Volunteers — TQI Admin" }] }),
@@ -116,7 +117,26 @@ function Page() {
         actions={
           <>
             <Button variant="outline" onClick={() => setImportOpen(true)}><Upload className="h-4 w-4" /> Bulk Import</Button>
-            <Button variant="outline" onClick={() => downloadMock("volunteers.csv", toCSV(s.volunteers as any), "text/csv")}><Download className="h-4 w-4" /> Export</Button>
+            <Button variant="outline" onClick={() => {
+              toast.promise(
+                exportVolunteersExcel(filterCluster !== "all" ? filterCluster : undefined),
+                {
+                  loading: "Generating Excel...",
+                  success: "Excel exported successfully",
+                  error: (err) => `Failed: ${err.message}`,
+                }
+              );
+            }}><Download className="h-4 w-4" /> Export Excel</Button>
+            <Button variant="outline" onClick={() => {
+              toast.promise(
+                exportVolunteersPdf(filterCluster !== "all" ? filterCluster : undefined),
+                {
+                  loading: "Generating PDF...",
+                  success: "PDF exported successfully",
+                  error: (err) => `Failed: ${err.message}`,
+                }
+              );
+            }}><Download className="h-4 w-4" /> Export PDF</Button>
             <Button onClick={openCreate}><Plus className="h-4 w-4" /> Create Volunteer</Button>
           </>
         }

@@ -54,44 +54,45 @@ export function buildFinanceReportHtml(expenses: Expense[], advances: Advance[],
 }
 
 export function printFinanceReport(html: string, title = "Finance Settlement Report") {
-  const win = window.open("", "_blank", "noopener,noreferrer,width=900,height=700");
-  if (!win) return false;
+  try {
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    document.body.appendChild(iframe);
 
-  win.document.write(`<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>${title}</title>
-<style>
-  * { box-sizing: border-box; }
-  body { font-family: Arial, Helvetica, sans-serif; color: #111; margin: 0; padding: 24px; font-size: 12px; }
-  h1 { font-size: 18px; margin: 0 0 4px; text-align: center; }
-  h2 { font-size: 13px; margin: 18px 0 8px; text-transform: uppercase; letter-spacing: 0.04em; color: #333; border-bottom: 2px solid #111; padding-bottom: 4px; }
-  .sub { text-align: center; color: #555; font-size: 11px; margin-bottom: 16px; }
-  table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
-  th, td { border: 1px solid #bbb; padding: 7px 8px; text-align: left; vertical-align: top; }
-  th { background: #f3f4f6; font-weight: 700; }
-  .summary { border: 1px solid #111; padding: 12px; margin-top: 8px; }
-  .summary-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px dashed #ccc; }
-  .summary-row:last-child { border-bottom: none; font-weight: 700; font-size: 14px; padding-top: 8px; }
-  .bill-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
-  .bill-card { border: 1px solid #bbb; padding: 8px; background: #fff; page-break-inside: avoid; }
-  .bill-card img { width: 100%; max-height: 320px; object-fit: contain; background: #fff; display: block; }
-  .bill-name { font-size: 10px; color: #555; margin-top: 6px; text-align: center; }
-  .signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 28px; }
-  .sign-line { border-top: 1px solid #111; padding-top: 6px; font-size: 11px; text-align: center; }
-  @media print { body { padding: 12px; } }
-</style></head><body>${html}</body></html>`);
-  win.document.close();
-  win.focus();
-  setTimeout(() => {
-    win.print();
-    win.close();
-  }, 400);
-  return true;
+    const doc = iframe.contentDocument || iframe.contentWindow?.document;
+    if (!doc) throw new Error("Print frame unavailable");
+    doc.open();
+    doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title><style>body{font-family:Arial,sans-serif;padding:12px}</style></head><body>${html}</body></html>`);
+    doc.close();
+
+    iframe.onload = () => {
+      try {
+        iframe.contentWindow?.focus();
+        iframe.contentWindow?.print();
+      } finally {
+        setTimeout(() => { if (document.body.contains(iframe)) document.body.removeChild(iframe); }, 500);
+      }
+    };
+
+    // Safety fallback in case onload doesn't fire
+    setTimeout(() => {
+      try { iframe.contentWindow?.focus(); iframe.contentWindow?.print(); } catch {}
+      setTimeout(() => { if (document.body.contains(iframe)) document.body.removeChild(iframe); }, 500);
+    }, 600);
+
+    return true;
+  } catch (err) {
+    console.error("Print failed:", err);
+    return false;
+  }
 }
 
 export function downloadFinancePdf(expenses: Expense[], advances: Advance[], refunds: Refund[]) {
   const html = buildFinanceReportHtml(expenses, advances, refunds);
-  if (!printFinanceReport(html)) {
-    return false;
-  }
-  return true;
+  return printFinanceReport(html);
 }
