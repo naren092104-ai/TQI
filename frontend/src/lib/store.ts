@@ -269,7 +269,9 @@ export const useStore = create<Store>()((set, get) => ({
       keys.map(async (resource) => {
         if (localOnlyKeys.has(resource as string)) return; // skip local-only
         try {
-          (loaded as any)[resource] = await fetchResource(resource as string);
+          // tqiReports uses a dedicated endpoint that handles role-based scoping
+          const endpoint = resource === "tqiReports" ? "tqi-reports" : resource as string;
+          (loaded as any)[resource] = await fetchResource(endpoint);
           loadedAny = true;
         } catch (error) {
           console.error(`Failed to load ${String(resource)}`, error);
@@ -297,7 +299,8 @@ export const useStore = create<Store>()((set, get) => ({
       return;
     }
     try {
-      const updated = await upsertResource(key as string, item);
+      const endpoint = key === "tqiReports" ? "tqi-reports" : key as string;
+      const updated = await upsertResource(endpoint, item);
       if (idx >= 0) arr[idx] = updated; else arr.unshift(updated);
     } catch (error) {
       console.error("Failed to upsert resource", error);
@@ -309,7 +312,8 @@ export const useStore = create<Store>()((set, get) => ({
     const localOnlyKeys = new Set(["financeSettings", "reopenRequests", "financeSettingsDb"]);
     if (!localOnlyKeys.has(key as string)) {
       try {
-        await deleteResource(key as string, id);
+        const endpoint = key === "tqiReports" ? "tqi-reports" : key as string;
+        await deleteResource(endpoint, id);
       } catch (error) {
         console.error("Failed to delete resource", error);
       }
@@ -323,7 +327,8 @@ export const useStore = create<Store>()((set, get) => ({
       return;
     }
     try {
-      const updated = await patchResource(key as string, id, patch);
+      const endpoint = key === "tqiReports" ? "tqi-reports" : key as string;
+      const updated = await patchResource(endpoint, id, patch);
       set((s) => ({ [key]: (s[key] as any[]).map((x) => (x.id === id ? updated : x)) } as any));
     } catch (error) {
       console.error("Failed to patch resource", error);
