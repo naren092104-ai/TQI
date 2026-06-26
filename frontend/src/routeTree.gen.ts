@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as VolunteersRouteImport } from './routes/volunteers'
 import { Route as VillagesRouteImport } from './routes/villages'
+import { Route as TqiReportsRouteImport } from './routes/tqi-reports'
 import { Route as TimelineRouteImport } from './routes/timeline'
 import { Route as StudentsRouteImport } from './routes/students'
 import { Route as SettingsRouteImport } from './routes/settings'
@@ -33,6 +34,8 @@ import { Route as AdvanceRouteImport } from './routes/advance'
 import { Route as AdminsRouteImport } from './routes/admins'
 import { Route as AcademicYearsRouteImport } from './routes/academic-years'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as TqiReportsIndexRouteImport } from './routes/tqi-reports/index'
+import { Route as TqiReportsCreateRouteImport } from './routes/tqi-reports/create'
 import { Route as AttendanceVolunteersRouteImport } from './routes/attendance/volunteers'
 import { Route as AttendanceStudentsRouteImport } from './routes/attendance/students'
 import { Route as AttendanceHomeworkRouteImport } from './routes/attendance/homework'
@@ -47,6 +50,11 @@ const VolunteersRoute = VolunteersRouteImport.update({
 const VillagesRoute = VillagesRouteImport.update({
   id: '/villages',
   path: '/villages',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TqiReportsRoute = TqiReportsRouteImport.update({
+  id: '/tqi-reports',
+  path: '/tqi-reports',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TimelineRoute = TimelineRouteImport.update({
@@ -159,6 +167,16 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TqiReportsIndexRoute = TqiReportsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => TqiReportsRoute,
+} as any)
+const TqiReportsCreateRoute = TqiReportsCreateRouteImport.update({
+  id: '/create',
+  path: '/create',
+  getParentRoute: () => TqiReportsRoute,
+} as any)
 const AttendanceVolunteersRoute = AttendanceVolunteersRouteImport.update({
   id: '/volunteers',
   path: '/volunteers',
@@ -208,6 +226,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/students': typeof StudentsRoute
   '/timeline': typeof TimelineRoute
+  '/tqi-reports': typeof TqiReportsRouteWithChildren
   '/villages': typeof VillagesRoute
   '/volunteers': typeof VolunteersRoute
   '/attendance/analytics': typeof AttendanceAnalyticsRoute
@@ -215,6 +234,8 @@ export interface FileRoutesByFullPath {
   '/attendance/homework': typeof AttendanceHomeworkRoute
   '/attendance/students': typeof AttendanceStudentsRoute
   '/attendance/volunteers': typeof AttendanceVolunteersRoute
+  '/tqi-reports/create': typeof TqiReportsCreateRoute
+  '/tqi-reports/': typeof TqiReportsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -246,6 +267,8 @@ export interface FileRoutesByTo {
   '/attendance/homework': typeof AttendanceHomeworkRoute
   '/attendance/students': typeof AttendanceStudentsRoute
   '/attendance/volunteers': typeof AttendanceVolunteersRoute
+  '/tqi-reports/create': typeof TqiReportsCreateRoute
+  '/tqi-reports': typeof TqiReportsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -271,6 +294,7 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/students': typeof StudentsRoute
   '/timeline': typeof TimelineRoute
+  '/tqi-reports': typeof TqiReportsRouteWithChildren
   '/villages': typeof VillagesRoute
   '/volunteers': typeof VolunteersRoute
   '/attendance/analytics': typeof AttendanceAnalyticsRoute
@@ -278,6 +302,8 @@ export interface FileRoutesById {
   '/attendance/homework': typeof AttendanceHomeworkRoute
   '/attendance/students': typeof AttendanceStudentsRoute
   '/attendance/volunteers': typeof AttendanceVolunteersRoute
+  '/tqi-reports/create': typeof TqiReportsCreateRoute
+  '/tqi-reports/': typeof TqiReportsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -304,6 +330,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/students'
     | '/timeline'
+    | '/tqi-reports'
     | '/villages'
     | '/volunteers'
     | '/attendance/analytics'
@@ -311,6 +338,8 @@ export interface FileRouteTypes {
     | '/attendance/homework'
     | '/attendance/students'
     | '/attendance/volunteers'
+    | '/tqi-reports/create'
+    | '/tqi-reports/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -342,6 +371,8 @@ export interface FileRouteTypes {
     | '/attendance/homework'
     | '/attendance/students'
     | '/attendance/volunteers'
+    | '/tqi-reports/create'
+    | '/tqi-reports'
   id:
     | '__root__'
     | '/'
@@ -366,6 +397,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/students'
     | '/timeline'
+    | '/tqi-reports'
     | '/villages'
     | '/volunteers'
     | '/attendance/analytics'
@@ -373,6 +405,8 @@ export interface FileRouteTypes {
     | '/attendance/homework'
     | '/attendance/students'
     | '/attendance/volunteers'
+    | '/tqi-reports/create'
+    | '/tqi-reports/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -398,6 +432,7 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   StudentsRoute: typeof StudentsRoute
   TimelineRoute: typeof TimelineRoute
+  TqiReportsRoute: typeof TqiReportsRouteWithChildren
   VillagesRoute: typeof VillagesRoute
   VolunteersRoute: typeof VolunteersRoute
 }
@@ -416,6 +451,13 @@ declare module '@tanstack/react-router' {
       path: '/villages'
       fullPath: '/villages'
       preLoaderRoute: typeof VillagesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/tqi-reports': {
+      id: '/tqi-reports'
+      path: '/tqi-reports'
+      fullPath: '/tqi-reports'
+      preLoaderRoute: typeof TqiReportsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/timeline': {
@@ -572,6 +614,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/tqi-reports/': {
+      id: '/tqi-reports/'
+      path: '/'
+      fullPath: '/tqi-reports/'
+      preLoaderRoute: typeof TqiReportsIndexRouteImport
+      parentRoute: typeof TqiReportsRoute
+    }
+    '/tqi-reports/create': {
+      id: '/tqi-reports/create'
+      path: '/create'
+      fullPath: '/tqi-reports/create'
+      preLoaderRoute: typeof TqiReportsCreateRouteImport
+      parentRoute: typeof TqiReportsRoute
+    }
     '/attendance/volunteers': {
       id: '/attendance/volunteers'
       path: '/volunteers'
@@ -630,6 +686,20 @@ const AttendanceRouteWithChildren = AttendanceRoute._addFileChildren(
   AttendanceRouteChildren,
 )
 
+interface TqiReportsRouteChildren {
+  TqiReportsCreateRoute: typeof TqiReportsCreateRoute
+  TqiReportsIndexRoute: typeof TqiReportsIndexRoute
+}
+
+const TqiReportsRouteChildren: TqiReportsRouteChildren = {
+  TqiReportsCreateRoute: TqiReportsCreateRoute,
+  TqiReportsIndexRoute: TqiReportsIndexRoute,
+}
+
+const TqiReportsRouteWithChildren = TqiReportsRoute._addFileChildren(
+  TqiReportsRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AcademicYearsRoute: AcademicYearsRoute,
@@ -653,6 +723,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   StudentsRoute: StudentsRoute,
   TimelineRoute: TimelineRoute,
+  TqiReportsRoute: TqiReportsRouteWithChildren,
   VillagesRoute: VillagesRoute,
   VolunteersRoute: VolunteersRoute,
 }

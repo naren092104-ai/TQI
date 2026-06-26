@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { config } from "./config.js";
 import { authRouter } from "./routes/auth.js";
 import { resourceRouter } from "./routes/resources.js";
+import { tqiReportsRouter } from "./routes/tqi-reports.js";
 import { createUploadsDir } from "./utils.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -68,6 +69,7 @@ app.post("/api/scan-bill", (req, res) => {
 });
 
 app.use("/api/auth", authRouter);
+app.use("/api/tqi-reports", tqiReportsRouter);
 app.use("/api", resourceRouter);
 
 app.use("/uploads", express.static(path.resolve(config.uploadsDir)));

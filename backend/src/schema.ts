@@ -24,6 +24,8 @@ const TABLE_SQL = [
   "CREATE TABLE IF NOT EXISTS `timeline` (`id` VARCHAR(64) PRIMARY KEY, `title` VARCHAR(255), `due` DATE, `owner` VARCHAR(255), `status` VARCHAR(64))",
   "CREATE TABLE IF NOT EXISTS `notifications` (`id` VARCHAR(64) PRIMARY KEY, `title` VARCHAR(255), `body` TEXT, `type` VARCHAR(64), `read` BOOLEAN, `at` DATETIME)",
   "CREATE TABLE IF NOT EXISTS `auditLogs` (`id` VARCHAR(64) PRIMARY KEY, `user` VARCHAR(255), `action` TEXT, `at` DATETIME, `ip` VARCHAR(64))",
+  // TQI Session Reports
+  "CREATE TABLE IF NOT EXISTS `tqiReports` (`id` VARCHAR(64) PRIMARY KEY, `clusterId` VARCHAR(64), `clusterName` VARCHAR(255), `collegeName` VARCHAR(255), `spocName` VARCHAR(255), `sessionId` VARCHAR(64), `sessionName` VARCHAR(255), `day` INT, `date` DATE, `academicYear` VARCHAR(255), `sessionObjective` TEXT, `activitiesConducted` TEXT, `keyLearningOutcomes` TEXT, `studentsPresent` INT DEFAULT 0, `studentsAbsent` INT DEFAULT 0, `totalVolunteers` INT DEFAULT 0, `beneficiaries` INT DEFAULT 0, `studentParticipation` TEXT, `volunteerParticipation` TEXT, `challengesFaced` TEXT, `solutionsProvided` TEXT, `futureActionPlan` TEXT, `remarks` TEXT, `photos` JSON, `status` VARCHAR(32) DEFAULT 'Draft', `submittedBy` VARCHAR(255), `submittedAt` DATETIME, `pdfGeneratedAt` DATETIME, `createdAt` DATETIME, `updatedAt` DATETIME)",
 ];
 
 // Columns to add to existing tables (ALTER TABLE ADD COLUMN IF NOT EXISTS)
