@@ -12,10 +12,10 @@ authRouter.post("/login", async (req, res) => {
     return res.status(400).json({ error: "Email and password are required" });
   }
 
-  // Allow login by email OR username
+  // Login by email only
   const rows = await query<any>(
-    "SELECT * FROM admins WHERE (email = ? OR username = ?) AND active = 1 LIMIT 1",
-    [email, email]
+    "SELECT * FROM admins WHERE email = ? AND active = 1 LIMIT 1",
+    [email]
   );
   const user = rows[0];
   if (!user) return res.status(401).json({ error: "Invalid credentials" });
@@ -24,10 +24,10 @@ authRouter.post("/login", async (req, res) => {
   if (!passwordMatches) return res.status(401).json({ error: "Invalid credentials" });
 
   const token = jwt.sign(
-    { id: user.id, role: user.role, email: user.email, username: user.username, clusterId: user.clusterId },
+    { id: user.id, role: user.role, email: user.email, clusterId: user.clusterId },
     config.jwtSecret,
     { expiresIn: "8h" },
   );
 
-  res.json({ token, user: { id: user.id, name: user.name, email: user.email, username: user.username, role: user.role, clusterId: user.clusterId } });
+  res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role, clusterId: user.clusterId } });
 });

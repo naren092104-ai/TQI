@@ -49,14 +49,22 @@ export const RESOURCE_MAP = {
     columns: ["id", "date", "schoolId", "completed", "partial", "notDone", "status", "sessionId", "clusterId", "submittedBy", "details"],
     jsonColumns: ["details"],
   },
+  attendanceSubmissions: {
+    table: "attendance_submissions",
+    columns: ["id", "cluster_id", "cluster_name", "session_id", "session_name", "day", "date", "attendance_type", "submitted_by", "submitted_at", "status", "present_count", "absent_count", "homework_completed", "total_count"],
+  },
   advances: {
     table: "advances",
-    columns: ["id", "amount", "date", "receivedFrom", "utr", "status", "remarks"],
+    columns: ["id", "amount", "date", "receivedFrom", "utr", "status", "remarks", "clusterId", "clusterName", "releasedBy"],
   },
   expenses: {
     table: "expenses",
-    columns: ["id", "date", "category", "amount", "description", "submittedBy", "status", "advanceId", "travelFrom", "travelTo", "breakfast", "lunch", "dinner", "refreshment", "remarks", "bills"],
-    jsonColumns: ["bills"],
+    columns: ["id", "date", "sessionDay", "clusterId", "clusterName", "collegeName", "financerName", "submittedBy", "spocName", "category", "amount", "description", "status", "advanceId", "volunteerCount", "remarks", "bills", "travelEntries", "foodEntries", "stationeryAmount", "stationeryBills", "stationeryEntries", "otherEntries", "sessionName", "grandTotal", "balance"],
+    jsonColumns: ["bills", "travelEntries", "foodEntries", "stationeryBills", "stationeryEntries", "otherEntries"],
+  },
+  financeSettingsDb: {
+    table: "financeSettings",
+    columns: ["id", "financerName", "financeEmail", "approverName", "approverDesignation", "organizationName", "pdfFooter", "signatureName", "signatureDesignation", "updatedAt"],
   },
   refunds: {
     table: "refunds",
@@ -64,7 +72,7 @@ export const RESOURCE_MAP = {
   },
   approvals: {
     table: "approvals",
-    columns: ["id", "type", "reference", "requestedBy", "amount", "date", "status", "remarks"],
+    columns: ["id", "type", "reference", "requestedBy", "amount", "date", "status", "remarks", "sessionId", "clusterId"],
   },
   timeline: {
     table: "timeline",

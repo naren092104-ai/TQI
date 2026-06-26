@@ -1,10 +1,9 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useState } from "react";
 import {
-  LayoutDashboard, Users, HeartHandshake, ClipboardCheck, BookCheck,
-  Wallet, Banknote, Undo2, BarChart3, Bell, Activity, Menu, LogOut,
-  Search, ChevronDown, ChevronRight, MapPin, Trees, School as SchoolIcon,
-  BookOpen,
+  LayoutDashboard, Users, HeartHandshake, ClipboardCheck,
+  Wallet, Bell, Menu, LogOut,
+  Search, ChevronDown, ChevronRight, BookOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,19 +18,14 @@ import { useStore } from "@/lib/store";
 import { useAuth } from "@/lib/auth";
 import { clearSession } from "@/utils/auth";
 import { cn } from "@/lib/utils";
+import { TqiLogoMark } from "@/lib/logo";
 
-// Cluster Admin — restricted nav only
+// ── Cluster Admin nav — restricted ────────────────────────────────────────────
 const clusterNav = [
-  { to: "/cluster-dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/students", label: "Students", icon: Users },
-  { to: "/volunteers", label: "Volunteers", icon: HeartHandshake },
-  { to: "/sessions", label: "Sessions", icon: BookOpen },
-] as const;
-
-const clusterHierarchyNav = [
-  { to: "/panchayats", label: "Panchayats", icon: MapPin },
-  { to: "/villages", label: "Villages", icon: Trees },
-  { to: "/schools", label: "Schools", icon: SchoolIcon },
+  { to: "/cluster-dashboard", label: "Dashboard",  icon: LayoutDashboard },
+  { to: "/students",          label: "Students",   icon: Users },
+  { to: "/volunteers",        label: "Volunteers", icon: HeartHandshake },
+  { to: "/sessions",          label: "Sessions",   icon: BookOpen },
 ] as const;
 
 const clusterExpandableNav = [
@@ -39,23 +33,19 @@ const clusterExpandableNav = [
     label: "Attendance",
     icon: ClipboardCheck,
     children: [
-      { to: "/attendance/students", label: "Students Attendance" },
+      { to: "/attendance/students",   label: "Students Attendance" },
       { to: "/attendance/volunteers", label: "Volunteers Attendance" },
-      { to: "/attendance/homework", label: "Homework" },
+      { to: "/attendance/homework",   label: "Homework" },
     ],
   },
 ] as const;
 
 const clusterFinanceNav = [
-  { to: "/finance", label: "Finance", icon: Wallet },
-  { to: "/advance", label: "Advance", icon: Banknote },
-  { to: "/refunds", label: "Refunds", icon: Undo2 },
+  { to: "/finance",       label: "Finance",       icon: Wallet },
 ] as const;
 
 const clusterMoreNav = [
-  { to: "/reports", label: "Reports", icon: BarChart3 },
   { to: "/notifications", label: "Notifications", icon: Bell },
-  { to: "/timeline", label: "Timeline", icon: Activity },
 ] as const;
 
 function ClusterSidebarBody({ onNav }: { onNav?: () => void }) {
@@ -92,13 +82,13 @@ function ClusterSidebarBody({ onNav }: { onNav?: () => void }) {
   return (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
       {/* Logo */}
-      <div className="flex h-16 shrink-0 items-center gap-3 border-b border-sidebar-border px-5">
-        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg gradient-secondary font-black text-sidebar-primary-foreground">
-          T
-        </div>
+      <div className="flex h-16 shrink-0 items-center gap-3 border-b border-sidebar-border px-4">
+        <TqiLogoMark size={38} className="shrink-0" />
         <div className="min-w-0">
           <div className="truncate text-sm font-bold">TQI Admin</div>
           <div className="truncate text-[11px] text-sidebar-foreground/60">Cluster Admin</div>
+        </div>
+      </div>
         </div>
       </div>
 
@@ -116,12 +106,6 @@ function ClusterSidebarBody({ onNav }: { onNav?: () => void }) {
 
         {/* Main nav */}
         {clusterNav.map((item) => <NavLink key={item.to} {...item} />)}
-
-        {/* Hierarchy */}
-        <div className="mt-4 px-3 pb-1 text-xs font-semibold uppercase tracking-[0.12em] text-sidebar-foreground/50">
-          Hierarchy
-        </div>
-        {clusterHierarchyNav.map((item) => <NavLink key={item.to} {...item} />)}
 
         {/* Attendance expandable */}
         <div className="mt-4 px-3 pb-1 text-xs font-semibold uppercase tracking-[0.12em] text-sidebar-foreground/50">
@@ -209,7 +193,6 @@ export function ClusterAdminShell({ children }: { children: React.ReactNode }) {
   // Determine page label
   const allNav = [
     ...clusterNav,
-    ...clusterHierarchyNav,
     ...clusterExpandableNav.flatMap(e => e.children),
     ...clusterFinanceNav,
     ...clusterMoreNav,

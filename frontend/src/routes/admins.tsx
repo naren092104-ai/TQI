@@ -12,14 +12,17 @@ import { Switch } from "@/components/ui/switch";
 import { DataTable } from "@/components/layout/data-table";
 import { ConfirmDelete } from "@/components/layout/confirm-delete";
 import { KpiCard } from "@/components/layout/kpi-card";
-import { Plus, Pencil, KeyRound, Activity, UserCog, Eye } from "lucide-react";
+import { Plus, Pencil, KeyRound, UserCog, Eye, EyeOff } from "lucide-react";
 import { useStore, newId, type Admin } from "@/lib/store";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/admins")({
-  head: () => ({ meta: [{ title: "Admins — TQI Admin" }] }),
+  head: () => ({ meta: [{ title: "User Management — TQI Admin" }] }),
   component: Page,
 });
+
+// Only these two roles are valid
+const ROLES: Admin["role"][] = ["Super Admin", "Cluster Admin"];
 
 function Page() {
   const s = useStore();
@@ -30,12 +33,27 @@ function Page() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [resetPasswordOpen, setResetPasswordOpen] = useState(false);
   const [resetTarget, setResetTarget] = useState<Admin | null>(null);
-  const [resetForm, setResetForm] = useState({ password: "", confirm: "" });
-  const [form, setForm] = useState({ name: "", email: "", username: "", college: "", phone: "", role: "" as Admin["role"] | "", active: true, password: "", confirm: "", clusterId: "", forcePasswordChange: true });
+  const [resetForm, setResetForm] = useState({ password: "", confirm: "", showPw: false });
   const [view, setView] = useState<Admin | null>(null);
 
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    college: "",
+    phone: "",
+    role: "" as Admin["role"] | "",
+    active: true,
+    password: "",
+    confirm: "",
+    clusterId: "",
+    spocName: "",
+    forcePasswordChange: true,
+  });
+
+  const isClusterAdmin = form.role === "Cluster Admin";
+
   const clusterOptions = useMemo(
-    () => s.clusters.filter((cluster) => cluster.name.toLowerCase().includes(clusterSearch.toLowerCase())),
+    () => s.clusters.filter((c) => c.name.toLowerCase().includes(clusterSearch.toLowerCase())),
     [s.clusters, clusterSearch],
   );
 
@@ -44,212 +62,286 @@ function Page() {
     setClusterSearch("");
     setShowPassword(false);
     setShowConfirmPassword(false);
-    setForm({ name: "", email: "", username: "", college: "", phone: "", role: "", active: true, password: "", confirm: "", clusterId: "", forcePasswordChange: true });
+    setForm({ name: "", email: "", college: "", phone: "", role: "", active: true, password: "", confirm: "", clusterId: "", spocName: "", forcePasswordChange: true });
     setOpen(true);
   };
+
   const openEdit = (a: Admin) => {
     setEdit(a);
     setClusterSearch("");
     setShowPassword(false);
     setShowConfirmPassword(false);
-    setForm({ name: a.name, email: a.email, username: a.username, college: a.college ?? "", phone: a.phone ?? "", role: a.role ?? "", active: a.active, password: "", confirm: "", clusterId: a.clusterId ?? "", forcePasswordChange: a.forcePasswordChange ?? false });
+    setForm({ name: a.name, email: a.email, college: a.college ?? "", phone: a.phone ?? "", role: a.role ?? "", active: a.active, password: "", confirm: "", clusterId: a.clusterId ?? "", spocName: (a as any).spocName ?? a.name, forcePasswordChange: a.forcePasswordChange ?? false });
     setOpen(true);
-  };
-  const getPasswordStrength = (value: string) => {
-    let score = 0;
-    if (value.length >= 8) score += 1;
-    if (/[A-Z]/.test(value)) score += 1;
-    if (/[0-9]/.test(value)) score += 1;
-    if (/[^A-Za-z0-9]/.test(value)) score += 1;
-    return score;
-  };
-
-  const passwordStrengthLabel = (value: string) => {
-    const score = getPasswordStrength(value);
-    return score <= 1 ? "Weak" : score === 2 ? "Medium" : "Strong";
-  };
-
-  const generatePassword = () => {
-    const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+";
-    const password = Array.from({ length: 14 }, () => chars.charAt(Math.floor(Math.random() * chars.length))).join("");
-    setForm((prev) => ({ ...prev, password, confirm: password }));
-    setShowPassword(true);
-    setShowConfirmPassword(true);
-  };
-
-  const copyPassword = async () => {
-    try {
-      await navigator.clipboard.writeText(form.password);
-      toast.success("Password copied");
-    } catch {
-      toast.error("Unable to copy password");
-    }
   };
 
   const save = async () => {
-    if (!form.name.trim() || !form.username.trim()) return toast.error("Name and username are required");
-    if (!edit && !form.password) return toast.error("Password is required for new admins");
+    if (!form.name.trim()) return toast.error("Name is required");
+    if (!form.email.trim()) return toast.error("Email ID is required");
+    if (!form.role) return toast.error("Role is required");
+    if (!edit && !form.password) return toast.error("Password is required");
     if (form.password && form.password !== form.confirm) return toast.error("Passwords do not match");
-    if (form.role === "Cluster Admin" && !form.clusterId) return toast.error("Assign a cluster for cluster admins");
+    if (form.role === "Cluster Admin") {
+      if (!form.clusterId) return toast.error("Cluster assignment is required for Cluster Admin");
+      if (!form.phone.trim()) return toast.error("Mobile number is required for Cluster Admin");
+      if (!form.college.trim()) return toast.error("College name is required for Cluster Admin");
+    }
+
     const payload: any = {
       id: edit?.id ?? newId(),
       createdAt: edit?.createdAt ?? new Date().toISOString(),
       lastLogin: edit?.lastLogin ?? new Date().toISOString(),
       name: form.name,
-      email: form.email || null,
-      username: form.username,
-      college: form.college || null,
-      role: (form.role || "Admin") as Admin["role"],
+      email: form.email,
+      // keep username = email for backward compat with existing DB
+      username: form.email,
+      college: form.role === "Cluster Admin" ? form.college || null : null,
+      role: form.role as Admin["role"],
       active: form.active,
-      phone: form.phone || null,
+      phone: form.role === "Cluster Admin" ? form.phone || null : null,
       clusterId: form.role === "Cluster Admin" ? form.clusterId || null : null,
       forcePasswordChange: form.forcePasswordChange,
     };
     if (form.password) payload.password = form.password;
+
     try {
       await s.upsert("admins", payload);
       toast.success("Saved");
       setOpen(false);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to save admin");
+      toast.error(error instanceof Error ? error.message : "Failed to save");
     }
   };
 
   return (
     <AppShell>
-      <PageHeader title="User Management" description="Manage administrative users and roles." actions={<Button onClick={openCreate}><Plus className="h-4 w-4" /> Create Admin</Button>} />
+      <PageHeader
+        title="User Management"
+        description="Manage Super Admins and Cluster Admins."
+        actions={<Button onClick={openCreate}><Plus className="h-4 w-4 mr-1" /> Create User</Button>}
+      />
+
+      {/* KPI Cards */}
       <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <KpiCard label="Total Admins" value={s.admins.length} icon={UserCog} tone="primary" />
+        <KpiCard label="Total Users" value={s.admins.length} icon={UserCog} tone="primary" />
         <KpiCard label="Active" value={s.admins.filter((a) => a.active).length} icon={UserCog} tone="success" />
         <KpiCard label="Super Admins" value={s.admins.filter((a) => a.role === "Super Admin").length} icon={UserCog} tone="secondary" />
         <KpiCard label="Cluster Admins" value={s.admins.filter((a) => a.role === "Cluster Admin").length} icon={UserCog} tone="info" />
       </div>
+
+      {/* User Table */}
       <DataTable
-        exportName="admins"
+        exportName="users"
         rows={s.admins}
-        searchKeys={["name", "email", "role", "username", "college"]}
+        searchKeys={["name", "email", "role", "college", "phone"]}
         columns={[
-          { key: "name", header: "Name", render: (r) => <span className="font-medium">{r.name}</span> },
-          { key: "college", header: "College", render: (r) => r.college || "—" },
-          { key: "email", header: "Email ID" },
-          { key: "username", header: "Username" },
-          { key: "clusterId", header: "Assigned Cluster", render: (r) => s.clusters.find((c) => c.id === r.clusterId)?.name || "—" },
-          { key: "active", header: "Status", render: (r) => r.active ? <Badge className="bg-success text-success-foreground">Active</Badge> : <Badge variant="secondary">Inactive</Badge> },
-          { key: "lastLogin", header: "Last Login", render: (r) => r.lastLogin?.slice(0,10) },
-          { key: "forcePasswordChange", header: "Password Change Required", render: (r) => r.forcePasswordChange ? <Badge variant="outline">Yes</Badge> : <Badge variant="secondary">No</Badge> },
-          { key: "_act", header: "Actions", className: "text-right", render: (r) => (
+          { key: "name",      header: "Name",         render: (r) => <span className="font-medium">{r.name}</span> },
+          { key: "role",      header: "Role",         render: (r) => (
+            <Badge variant={r.role === "Super Admin" ? "default" : "outline"} className={r.role === "Super Admin" ? "bg-indigo-600 text-white" : ""}>
+              {r.role}
+            </Badge>
+          )},
+          { key: "email",     header: "Email ID" },
+          { key: "clusterId", header: "Cluster",      render: (r) => s.clusters.find((c) => c.id === r.clusterId)?.name || "—" },
+          { key: "college",   header: "College",      render: (r) => r.college || "—" },
+          { key: "phone",     header: "Mobile",       render: (r) => r.phone || "—" },
+          { key: "active",    header: "Status",       render: (r) => r.active ? <Badge className="bg-success text-success-foreground">Active</Badge> : <Badge variant="secondary">Inactive</Badge> },
+          { key: "lastLogin", header: "Last Login",   render: (r) => r.lastLogin?.slice(0, 10) || "—" },
+          { key: "_act",      header: "Actions",      className: "text-right", render: (r) => (
             <div className="flex flex-wrap justify-end gap-1">
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setView(r)}><Eye className="h-4 w-4" /></Button>
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setResetTarget(r); setResetPasswordOpen(true); }}><KeyRound className="h-4 w-4" /></Button>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setView(r)} title="View"><Eye className="h-4 w-4" /></Button>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setResetTarget(r); setResetPasswordOpen(true); }} title="Reset Password"><KeyRound className="h-4 w-4" /></Button>
               <Switch checked={r.active} onCheckedChange={(v) => s.patch("admins", r.id, { active: v })} />
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(r)}><Pencil className="h-4 w-4" /></Button>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(r)} title="Edit"><Pencil className="h-4 w-4" /></Button>
               <ConfirmDelete onConfirm={() => { s.remove("admins", r.id); toast.success("Deleted"); }} />
             </div>
-          ) },
+          )},
         ]}
       />
+
+      {/* ── Reset Password Dialog ── */}
       <Dialog open={resetPasswordOpen} onOpenChange={setResetPasswordOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Reset Password</DialogTitle></DialogHeader>
-          <div className="space-y-4">
-            <div><Label>New Password</Label><Input type="password" value={resetForm.password} onChange={(e) => setResetForm({ ...resetForm, password: e.target.value })} /></div>
-            <div><Label>Confirm Password</Label><Input type="password" value={resetForm.confirm} onChange={(e) => setResetForm({ ...resetForm, confirm: e.target.value })} /></div>
+          <DialogHeader><DialogTitle>Reset Password — {resetTarget?.name}</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>New Password</Label>
+              <div className="relative mt-1">
+                <Input type={resetForm.showPw ? "text" : "password"} value={resetForm.password}
+                  onChange={(e) => setResetForm(p => ({ ...p, password: e.target.value }))} placeholder="Enter new password" />
+                <button type="button" onClick={() => setResetForm(p => ({ ...p, showPw: !p.showPw }))}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                  {resetForm.showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </div>
+            <div>
+              <Label>Confirm Password</Label>
+              <Input className="mt-1" type="password" value={resetForm.confirm}
+                onChange={(e) => setResetForm(p => ({ ...p, confirm: e.target.value }))} placeholder="Confirm password" />
+            </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setResetPasswordOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setResetPasswordOpen(false); setResetForm({ password: "", confirm: "", showPw: false }); }}>Cancel</Button>
             <Button onClick={async () => {
               if (!resetTarget) return;
               if (!resetForm.password) return toast.error("Password is required");
               if (resetForm.password !== resetForm.confirm) return toast.error("Passwords do not match");
               await s.patch("admins", resetTarget.id, { password: resetForm.password, forcePasswordChange: false });
-              toast.success("Password reset");
+              toast.success("Password reset successfully");
               setResetPasswordOpen(false);
               setResetTarget(null);
-              setResetForm({ password: "", confirm: "" });
+              setResetForm({ password: "", confirm: "", showPw: false });
             }}>Save</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ── Create / Edit Dialog ── */}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>{edit ? "Edit" : "Create"} Admin</DialogTitle></DialogHeader>
-          <div className="space-y-4">
-            <div className="rounded-lg border border-border p-4">
-              <div className="text-xs uppercase text-muted-foreground">Login Information</div>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <div className="sm:col-span-2"><Label>Name</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Admin full name" /></div>
-                <div><Label>Username</Label><Input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} placeholder="Login username" /></div>
-                <div><Label>Role</Label>
-                  <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v as Admin["role"] | "", clusterId: v === "Cluster Admin" ? form.clusterId : "" })}>
-                    <SelectTrigger><SelectValue placeholder="Select role" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="">No role</SelectItem>
-                      {['Super Admin', 'Admin', 'Cluster Admin', 'Finance'].map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div><Label>Password</Label>
-                  <div className="flex items-center gap-2">
-                    <Input type={showPassword ? "text" : "password"} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
-                    <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => setShowPassword((prev) => !prev)}>{showPassword ? "Hide" : "Show"}</Button>
-                  </div>
-                </div>
-                <div><Label>Confirm Password</Label>
-                  <div className="flex items-center gap-2">
-                    <Input type={showConfirmPassword ? "text" : "password"} value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })} />
-                    <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => setShowConfirmPassword((prev) => !prev)}>{showConfirmPassword ? "Hide" : "Show"}</Button>
-                  </div>
-                </div>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{edit ? "Edit" : "Create"} User</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+            {/* Basic Info */}
+            <div className="rounded-lg border p-4 space-y-3">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Basic Information</p>
+
+              <div>
+                <Label>Role <span className="text-destructive">*</span></Label>
+                <Select value={form.role} onValueChange={(v) => setForm(p => ({ ...p, role: v as Admin["role"] | "", clusterId: v === "Cluster Admin" ? p.clusterId : "" }))}>
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="Select role" /></SelectTrigger>
+                  <SelectContent>
+                    {ROLES.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
-              <div className="mt-3 flex flex-col gap-2">
-                <div className="flex items-center gap-2 text-sm"><span className="font-medium">Strength:</span> {passwordStrengthLabel(form.password)}</div>
-                <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                  <div className={`h-full ${form.password ? (getPasswordStrength(form.password) >= 3 ? "bg-success" : getPasswordStrength(form.password) === 2 ? "bg-warning" : "bg-destructive") : "bg-border"}`} style={{ width: `${(getPasswordStrength(form.password) / 4) * 100}%` }} />
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" size="sm" onClick={generatePassword}>Generate Strong Password</Button>
-                  <Button variant="outline" size="sm" onClick={copyPassword} disabled={!form.password}>Copy Password</Button>
-                </div>
+
+              <div>
+                <Label>Name <span className="text-destructive">*</span></Label>
+                <Input className="mt-1" value={form.name} onChange={(e) => setForm(p => ({ ...p, name: e.target.value }))} placeholder="Full name" />
               </div>
-              <div className="flex items-center gap-2 pt-3">
-                <Switch checked={form.forcePasswordChange} onCheckedChange={(v) => setForm({ ...form, forcePasswordChange: v })} />
-                <span className="text-sm">Force Password Change On First Login</span>
+
+              <div>
+                <Label>Email ID <span className="text-destructive">*</span></Label>
+                <Input className="mt-1" type="email" value={form.email} onChange={(e) => setForm(p => ({ ...p, email: e.target.value }))} placeholder="email@example.com" />
+                <p className="text-xs text-muted-foreground mt-1">Used as Login ID</p>
               </div>
             </div>
-            {form.role === "Cluster Admin" && (
-              <div className="rounded-lg border border-border p-4">
-                <div className="text-xs uppercase text-muted-foreground">Cluster Assignment</div>
-                <div className="mt-3 space-y-2">
-                  <Input placeholder="Search clusters" value={clusterSearch} onChange={(e) => setClusterSearch(e.target.value)} />
-                  <Select value={form.clusterId} onValueChange={(value) => setForm({ ...form, clusterId: value })}>
+
+            {/* Password */}
+            <div className="rounded-lg border p-4 space-y-3">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                {edit ? "Change Password (leave blank to keep current)" : "Set Password"}
+              </p>
+
+              <div>
+                <Label>{edit ? "New Password" : "Password"} {!edit && <span className="text-destructive">*</span>}</Label>
+                <div className="relative mt-1">
+                  <Input type={showPassword ? "text" : "password"} value={form.password}
+                    onChange={(e) => setForm(p => ({ ...p, password: e.target.value }))}
+                    placeholder={edit ? "Leave blank to keep current" : "Enter password"} className="pr-10" />
+                  <button type="button" onClick={() => setShowPassword(p => !p)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <Label>Confirm Password {!edit && <span className="text-destructive">*</span>}</Label>
+                <div className="relative mt-1">
+                  <Input type={showConfirmPassword ? "text" : "password"} value={form.confirm}
+                    onChange={(e) => setForm(p => ({ ...p, confirm: e.target.value }))}
+                    placeholder="Confirm password" className="pr-10" />
+                  <button type="button" onClick={() => setShowConfirmPassword(p => !p)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                    {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Switch checked={form.forcePasswordChange} onCheckedChange={(v) => setForm(p => ({ ...p, forcePasswordChange: v }))} />
+                <span className="text-sm">Force password change on first login</span>
+              </div>
+            </div>
+
+            {/* Cluster Admin fields */}
+            {isClusterAdmin && (
+              <div className="rounded-lg border p-4 space-y-3">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Cluster Admin Details</p>
+
+                <div>
+                  <Label>Cluster Assignment <span className="text-destructive">*</span></Label>
+                  <Input className="mt-1 mb-2" placeholder="Search clusters..." value={clusterSearch} onChange={(e) => setClusterSearch(e.target.value)} />
+                  <Select value={form.clusterId} onValueChange={(v) => setForm(p => ({ ...p, clusterId: v }))}>
                     <SelectTrigger><SelectValue placeholder="Select cluster" /></SelectTrigger>
                     <SelectContent>
-                      {clusterOptions.length === 0 ? (
-                        <SelectItem value="">No matching clusters</SelectItem>
-                      ) : (
-                        clusterOptions.map((cluster) => (
-                          <SelectItem key={cluster.id} value={cluster.id}>{cluster.name}</SelectItem>
-                        ))
-                      )}
+                      {clusterOptions.length === 0
+                        ? <SelectItem value="">No matching clusters</SelectItem>
+                        : clusterOptions.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)
+                      }
                     </SelectContent>
                   </Select>
+                </div>
+
+                <div>
+                  <Label>SPOC Name <span className="text-destructive">*</span></Label>
+                  <Input className="mt-1" value={form.spocName} onChange={(e) => setForm(p => ({ ...p, spocName: e.target.value }))} placeholder="Single Point of Contact name" />
+                </div>
+
+                <div>
+                  <Label>College Name <span className="text-destructive">*</span></Label>
+                  <Input className="mt-1" value={form.college} onChange={(e) => setForm(p => ({ ...p, college: e.target.value }))} placeholder="Associated college" />
+                </div>
+
+                <div>
+                  <Label>Mobile Number <span className="text-destructive">*</span></Label>
+                  <Input className="mt-1" type="tel" value={form.phone} onChange={(e) => setForm(p => ({ ...p, phone: e.target.value }))} placeholder="10-digit mobile number" />
                 </div>
               </div>
             )}
+
+            {/* Active status */}
+            <div className="flex items-center gap-2 px-1">
+              <Switch checked={form.active} onCheckedChange={(v) => setForm(p => ({ ...p, active: v }))} />
+              <span className="text-sm">Account Active</span>
+            </div>
           </div>
-          <DialogFooter><Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button onClick={save}>Save</Button></DialogFooter>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button onClick={save}>Save</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ── View User Sheet ── */}
       <Sheet open={!!view} onOpenChange={(o) => !o && setView(null)}>
-        <SheetContent className="w-full sm:max-w-md">
+        <SheetContent className="w-full sm:max-w-md overflow-y-auto">
           {view && (
             <>
               <SheetHeader><SheetTitle>{view.name}</SheetTitle></SheetHeader>
-              <div className="space-y-4">
-                <div className="rounded-lg border border-border p-4">
-                  <div className="text-xs uppercase text-muted-foreground">Login Information</div>
-                  <div><span className="text-muted-foreground">Password Change Required:</span> {view.forcePasswordChange ? "Yes" : "No"}</div>
+              <div className="mt-4 space-y-4">
+                <div className="rounded-lg border p-4 space-y-2 text-sm">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase">Account Info</p>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Role</span><Badge variant={view.role === "Super Admin" ? "default" : "outline"}>{view.role}</Badge></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Email ID</span><span className="font-medium">{view.email || "—"}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Status</span>{view.active ? <Badge className="bg-success text-success-foreground">Active</Badge> : <Badge variant="secondary">Inactive</Badge>}</div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Force Pw Change</span><span>{view.forcePasswordChange ? "Yes" : "No"}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Last Login</span><span>{view.lastLogin?.slice(0,10) || "—"}</span></div>
                 </div>
+                {view.role === "Cluster Admin" && (
+                  <div className="rounded-lg border p-4 space-y-2 text-sm">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase">Cluster Admin Details</p>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Cluster</span><span className="font-medium">{s.clusters.find(c => c.id === view.clusterId)?.name || "—"}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">College</span><span>{view.college || "—"}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Mobile</span><span>{view.phone || "—"}</span></div>
+                  </div>
+                )}
               </div>
             </>
           )}

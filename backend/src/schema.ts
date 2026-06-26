@@ -15,8 +15,10 @@ const TABLE_SQL = [
   "CREATE TABLE IF NOT EXISTS `sessions` (`id` VARCHAR(64) PRIMARY KEY, `day` INT, `title` VARCHAR(255), `description` TEXT, `date` DATE, `clusterId` VARCHAR(64), `status` VARCHAR(64), `trainer` VARCHAR(255), `conductedDate` DATETIME, `completedAt` DATETIME, `lockedAt` DATETIME, `reopenUntil` DATETIME, `completedBy` VARCHAR(255), `dateSetAt` DATETIME)",
   "CREATE TABLE IF NOT EXISTS `attendance` (`id` VARCHAR(64) PRIMARY KEY, `date` DATE, `schoolId` VARCHAR(64), `present` INT, `total` INT, `type` VARCHAR(32), `status` VARCHAR(32), `sessionId` VARCHAR(64), `clusterId` VARCHAR(64), `submittedBy` VARCHAR(255), `details` JSON)",
   "CREATE TABLE IF NOT EXISTS `homework` (`id` VARCHAR(64) PRIMARY KEY, `date` DATE, `schoolId` VARCHAR(64), `completed` INT, `partial` INT, `notDone` INT, `status` VARCHAR(32), `sessionId` VARCHAR(64), `clusterId` VARCHAR(64), `submittedBy` VARCHAR(255), `details` JSON)",
-  "CREATE TABLE IF NOT EXISTS `advances` (`id` VARCHAR(64) PRIMARY KEY, `amount` DECIMAL(12,2), `date` DATE, `receivedFrom` VARCHAR(255), `utr` VARCHAR(255), `status` VARCHAR(64), `remarks` TEXT)",
-  "CREATE TABLE IF NOT EXISTS `expenses` (`id` VARCHAR(64) PRIMARY KEY, `date` DATE, `category` VARCHAR(64), `amount` DECIMAL(12,2), `description` TEXT, `submittedBy` VARCHAR(255), `status` VARCHAR(64), `advanceId` VARCHAR(64), `travelFrom` VARCHAR(255), `travelTo` VARCHAR(255), `breakfast` DECIMAL(12,2), `lunch` DECIMAL(12,2), `dinner` DECIMAL(12,2), `refreshment` DECIMAL(12,2), `remarks` TEXT, `bills` JSON)",
+  "CREATE TABLE IF NOT EXISTS `attendance_submissions` (`id` VARCHAR(64) PRIMARY KEY, `cluster_id` VARCHAR(64), `cluster_name` VARCHAR(255), `session_id` VARCHAR(64), `session_name` VARCHAR(255), `day` INT, `date` DATE, `attendance_type` VARCHAR(32), `submitted_by` VARCHAR(255), `submitted_at` DATETIME, `status` VARCHAR(32), `present_count` INT, `absent_count` INT, `homework_completed` INT, `total_count` INT)",
+  "CREATE TABLE IF NOT EXISTS `advances` (`id` VARCHAR(64) PRIMARY KEY, `amount` DECIMAL(12,2), `date` DATE, `receivedFrom` VARCHAR(255), `utr` VARCHAR(255), `status` VARCHAR(64), `remarks` TEXT, `clusterId` VARCHAR(64), `clusterName` VARCHAR(255), `releasedBy` VARCHAR(255))",
+  "CREATE TABLE IF NOT EXISTS `expenses` (`id` VARCHAR(64) PRIMARY KEY, `date` DATE, `sessionDay` INT, `clusterId` VARCHAR(64), `clusterName` VARCHAR(255), `collegeName` VARCHAR(255), `financerName` VARCHAR(255), `submittedBy` VARCHAR(255), `spocName` VARCHAR(255), `category` VARCHAR(64), `amount` DECIMAL(12,2), `description` TEXT, `status` VARCHAR(64), `advanceId` VARCHAR(64), `volunteerCount` INT, `remarks` TEXT, `bills` JSON, `travelEntries` JSON, `foodEntries` JSON, `stationeryAmount` DECIMAL(12,2), `stationeryBills` JSON, `stationeryEntries` JSON, `otherEntries` JSON, `sessionName` VARCHAR(255), `grandTotal` DECIMAL(12,2), `balance` DECIMAL(12,2))",
+  "CREATE TABLE IF NOT EXISTS `financeSettings` (`id` VARCHAR(64) PRIMARY KEY, `financerName` VARCHAR(255), `financeEmail` VARCHAR(255), `approverName` VARCHAR(255), `approverDesignation` VARCHAR(255), `organizationName` VARCHAR(255), `pdfFooter` TEXT, `signatureName` VARCHAR(255), `signatureDesignation` VARCHAR(255), `updatedAt` DATETIME)",
   "CREATE TABLE IF NOT EXISTS `refunds` (`id` VARCHAR(64) PRIMARY KEY, `amount` DECIMAL(12,2), `date` DATE, `utr` VARCHAR(255), `txn` VARCHAR(255), `remarks` TEXT, `status` VARCHAR(64))",
   "CREATE TABLE IF NOT EXISTS `approvals` (`id` VARCHAR(64) PRIMARY KEY, `type` VARCHAR(64), `reference` VARCHAR(255), `requestedBy` VARCHAR(255), `amount` DECIMAL(12,2), `date` DATE, `status` VARCHAR(64), `remarks` TEXT, `sessionId` VARCHAR(64), `clusterId` VARCHAR(64))",
   "CREATE TABLE IF NOT EXISTS `timeline` (`id` VARCHAR(64) PRIMARY KEY, `title` VARCHAR(255), `due` DATE, `owner` VARCHAR(255), `status` VARCHAR(64))",
@@ -68,6 +70,27 @@ const COLUMN_MIGRATIONS: { table: string; column: string; ddl: string }[] = [
   // approvals
   { table: "approvals", column: "sessionId",   ddl: "`sessionId` VARCHAR(64)" },
   { table: "approvals", column: "clusterId",   ddl: "`clusterId` VARCHAR(64)" },
+  // advances — cluster tracking
+  { table: "advances", column: "clusterId",    ddl: "`clusterId` VARCHAR(64)" },
+  { table: "advances", column: "clusterName",  ddl: "`clusterName` VARCHAR(255)" },
+  { table: "advances", column: "releasedBy",   ddl: "`releasedBy` VARCHAR(255)" },
+  // expenses — full finance entry columns
+  { table: "expenses", column: "sessionDay",        ddl: "`sessionDay` INT" },
+  { table: "expenses", column: "clusterId",         ddl: "`clusterId` VARCHAR(64)" },
+  { table: "expenses", column: "clusterName",       ddl: "`clusterName` VARCHAR(255)" },
+  { table: "expenses", column: "collegeName",       ddl: "`collegeName` VARCHAR(255)" },
+  { table: "expenses", column: "financerName",      ddl: "`financerName` VARCHAR(255)" },
+  { table: "expenses", column: "spocName",          ddl: "`spocName` VARCHAR(255)" },
+  { table: "expenses", column: "volunteerCount",    ddl: "`volunteerCount` INT" },
+  { table: "expenses", column: "travelEntries",     ddl: "`travelEntries` JSON" },
+  { table: "expenses", column: "foodEntries",       ddl: "`foodEntries` JSON" },
+  { table: "expenses", column: "stationeryAmount",  ddl: "`stationeryAmount` DECIMAL(12,2)" },
+  { table: "expenses", column: "stationeryBills",   ddl: "`stationeryBills` JSON" },
+  { table: "expenses", column: "stationeryEntries", ddl: "`stationeryEntries` JSON" },
+  { table: "expenses", column: "otherEntries",      ddl: "`otherEntries` JSON" },
+  { table: "expenses", column: "sessionName",       ddl: "`sessionName` VARCHAR(255)" },
+  { table: "expenses", column: "grandTotal",        ddl: "`grandTotal` DECIMAL(12,2)" },
+  { table: "expenses", column: "balance",           ddl: "`balance` DECIMAL(12,2)" },
 ];
 
 async function columnExists(table: string, column: string): Promise<boolean> {
