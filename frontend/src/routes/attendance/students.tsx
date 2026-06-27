@@ -113,12 +113,14 @@ function SuperAdminStudentsView() {
     return true;
   }), [allSubs, clusterFilter, sessionFilter, statusFilter, submittedByFilter, searchText]);
 
-  const totals = useMemo(() => ({
-    totalStudents: filtered.reduce((a, b) => a + (b.total_count || 0), 0),
-    present: filtered.reduce((a, b) => a + (b.present_count || 0), 0),
-    absent: filtered.reduce((a, b) => a + (b.absent_count || 0), 0),
-    hwCompleted: filtered.reduce((a, b) => a + (b.homework_completed || 0), 0),
-  }), [filtered]);
+  const totals = useMemo(() => {
+    const totalStudents = filtered.reduce((a, b) => a + (b.total_count || 0), 0);
+    const present = filtered.reduce((a, b) => a + (b.present_count || 0), 0);
+    const absent = filtered.reduce((a, b) => a + (b.absent_count || 0), 0);
+    const hwCompleted = filtered.reduce((a, b) => a + (b.homework_completed || 0), 0);
+    const hwPending = totalStudents - hwCompleted;
+    return { totalStudents, present, absent, hwCompleted, hwPending };
+  }, [filtered]);
 
   const attPct = totals.totalStudents > 0 ? ((totals.present / totals.totalStudents) * 100).toFixed(1) : "0";
 
@@ -182,13 +184,14 @@ function SuperAdminStudentsView() {
             </div>
           </div>
           {/* Summary cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
+          <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 mb-4">
             {[
-              { label: "Total", value: sub.total_count, color: "text-slate-800" },
+              { label: "Total Students", value: sub.total_count, color: "text-slate-800" },
               { label: "Present", value: sub.present_count, color: "text-green-600" },
               { label: "Absent", value: sub.absent_count, color: "text-red-600" },
-              { label: "HW Done", value: sub.homework_completed, color: "text-indigo-600" },
-              { label: "Att %", value: `${pct}%`, color: "text-blue-700" },
+              { label: "HW Completed", value: sub.homework_completed, color: "text-indigo-600" },
+              { label: "HW Pending", value: sub.total_count - (sub.homework_completed || 0), color: "text-orange-600" },
+              { label: "Attendance %", value: `${pct}%`, color: "text-blue-700" },
             ].map(c => (
               <div key={c.label} className="rounded-xl bg-white border shadow-sm p-3">
                 <p className="text-[11px] text-slate-500">{c.label}</p>
@@ -196,11 +199,10 @@ function SuperAdminStudentsView() {
               </div>
             ))}
           </div>
-          <div className="text-xs text-slate-400 mb-4">
-            Submitted by <strong className="text-slate-600">{sub.submitted_by || "—"}</strong> · {fmtDateTime(sub.submitted_at)} ·&nbsp;
-            <span className={`inline-block px-2 py-0.5 rounded-full font-semibold capitalize ${sub.status === "submitted" ? "bg-green-100 text-green-700" : sub.status === "approved" ? "bg-emerald-100 text-emerald-700" : sub.status === "rejected" ? "bg-red-100 text-red-600" : "bg-yellow-100 text-yellow-700"}`}>
-              {sub.status}
-            </span>
+          <div className="mb-4 rounded-lg bg-slate-50 border border-slate-200 px-4 py-2.5 text-xs text-slate-600 flex flex-wrap gap-x-4 gap-y-1">
+            <span>Submitted by: <strong className="text-slate-800">{sub.submitted_by || "—"}</strong></span>
+            <span>Submitted on: <strong className="text-slate-800">{fmtDateTime(sub.submitted_at)}</strong></span>
+            <span>Status: <span className={`font-semibold capitalize px-1.5 py-0.5 rounded-full ${sub.status === "submitted" ? "bg-green-100 text-green-700" : sub.status === "approved" ? "bg-emerald-100 text-emerald-700" : sub.status === "rejected" ? "bg-red-100 text-red-600" : "bg-yellow-100 text-yellow-700"}`}>{sub.status}</span></span>
           </div>
           {/* Village → Standard → Students */}
           <div className="space-y-4">
@@ -222,22 +224,27 @@ function SuperAdminStudentsView() {
                             <th className="px-3 py-2 text-left">S.No</th>
                             <th className="px-3 py-2 text-left">Student Name</th>
                             <th className="px-3 py-2 text-left">Village</th>
+                            <th className="px-3 py-2 text-left">School</th>
                             <th className="px-3 py-2 text-center">Standard</th>
                             <th className="px-3 py-2 text-center">Attendance</th>
                             <th className="px-3 py-2 text-center">Homework</th>
+                            <th className="px-3 py-2 text-center">Submitted Date</th>
                           </tr></thead>
                           <tbody>
                             {stdStudents.map((st, idx) => {
                               const att = mergedDetails[st.id] ?? null;
                               const hw = mergedHw[st.id] ?? null;
+                              const school = s.schools.find(sc => sc.id === st.schoolId);
                               return (
                                 <tr key={st.id} className="border-b hover:bg-slate-50/60">
                                   <td className="px-3 py-2 text-slate-400">{idx+1}</td>
                                   <td className="px-3 py-2 font-medium text-slate-800">{st.name}</td>
                                   <td className="px-3 py-2 text-slate-500">{village.name}</td>
+                                  <td className="px-3 py-2 text-slate-500">{school?.name ?? "—"}</td>
                                   <td className="px-3 py-2 text-center text-slate-500">{std}</td>
                                   <td className="px-3 py-2 text-center">{att ? <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-medium ${att==="present"?"bg-green-100 text-green-700":"bg-red-100 text-red-600"}`}>{att==="present"?"Present":"Absent"}</span> : <span className="text-slate-300">—</span>}</td>
                                   <td className="px-3 py-2 text-center">{hw ? <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-medium ${hw==="completed"?"bg-green-100 text-green-700":"bg-orange-100 text-orange-600"}`}>{hw==="completed"?"Completed":"Not Completed"}</span> : <span className="text-slate-300">—</span>}</td>
+                                  <td className="px-3 py-2 text-center text-slate-400">{fmtDate(sub.submitted_at ?? sub.date)}</td>
                                 </tr>
                               );
                             })}
@@ -264,7 +271,9 @@ function SuperAdminStudentsView() {
     const cPresent = clusterSubs.reduce((a, b) => a + (b.present_count||0), 0);
     const cAbsent = clusterSubs.reduce((a, b) => a + (b.absent_count||0), 0);
     const cHw = clusterSubs.reduce((a, b) => a + (b.homework_completed||0), 0);
+    const cHwPending = cTotal - cHw;
     const cPct = cTotal > 0 ? ((cPresent/cTotal)*100).toFixed(0) : "0";
+    const cRegistered = s.students.filter(st => st.clusterId === selectedCluster.id).length;
     const cPanchayats = s.panchayats.filter(p => p.clusterId === selectedCluster.id);
     const cVillages = s.villages.filter(v => cPanchayats.some(p => p.id === v.panchayatId));
 
@@ -308,12 +317,16 @@ function SuperAdminStudentsView() {
             </div>
           </div>
           {/* Cluster KPI */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
             {[
-              { label: "Total Students", value: cTotal, color: "text-slate-800" },
+              { label: "Registered", value: cRegistered, color: "text-slate-600" },
+              { label: "Total Attended", value: cTotal, color: "text-slate-800" },
               { label: "Present", value: cPresent, color: "text-green-600" },
               { label: "Absent", value: cAbsent, color: "text-red-600" },
+              { label: "HW Done", value: cHw, color: "text-indigo-600" },
+              { label: "HW Pending", value: cHwPending, color: "text-orange-600" },
               { label: "Attendance %", value: `${cPct}%`, color: "text-blue-700" },
+              { label: "Days Submitted", value: clusterSubs.length, color: "text-slate-700" },
             ].map(c => (
               <div key={c.label} className="rounded-xl bg-white border shadow-sm p-3">
                 <p className="text-[11px] text-slate-500">{c.label}</p>
@@ -353,6 +366,7 @@ function SuperAdminStudentsView() {
           <div className="space-y-2">
             {clusterSubs.map(sub => {
               const pct = sub.total_count > 0 ? ((sub.present_count/sub.total_count)*100).toFixed(0) : "0";
+              const hwPending = sub.total_count - (sub.homework_completed || 0);
               return (
                 <button key={sub.id} onClick={() => goToDay(sub.id)}
                   className="w-full rounded-xl border bg-white shadow-sm px-4 py-3 flex items-center justify-between hover:bg-blue-50 hover:border-blue-200 transition-colors group text-left">
@@ -368,16 +382,14 @@ function SuperAdminStudentsView() {
                         <span>Total: <strong>{sub.total_count}</strong></span>
                         <span>Present: <strong className="text-green-700">{sub.present_count}</strong></span>
                         <span>Absent: <strong className="text-red-600">{sub.absent_count}</strong></span>
-                        <span>HW: <strong className="text-indigo-600">{sub.homework_completed}</strong></span>
+                        <span>HW Done: <strong className="text-indigo-600">{sub.homework_completed}</strong></span>
+                        <span>HW Pending: <strong className="text-orange-600">{hwPending}</strong></span>
                         <span>Att: <strong className="text-blue-700">{pct}%</strong></span>
                       </div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">By: {sub.submitted_by || "—"}</div>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <div className="text-right text-[11px] text-slate-400 hidden sm:block">
-                      <div>By: <span className="font-medium text-slate-600">{sub.submitted_by||"—"}</span></div>
-                      <div>{fmtDateTime(sub.submitted_at)}</div>
-                    </div>
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium capitalize ${sub.status==="submitted"?"bg-green-100 text-green-700":sub.status==="approved"?"bg-emerald-100 text-emerald-700":sub.status==="rejected"?"bg-red-100 text-red-600":"bg-yellow-100 text-yellow-700"}`}>
                       {sub.status}
                     </span>
@@ -387,6 +399,28 @@ function SuperAdminStudentsView() {
               );
             })}
           </div>
+
+          {/* Cluster Totals Summary */}
+          {clusterSubs.length > 0 && (
+            <div className="mt-5 rounded-xl border-2 border-blue-200 bg-blue-50 p-4">
+              <h3 className="font-bold text-sm text-blue-800 mb-3">{selectedCluster.name} — Cluster Totals</h3>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                {[
+                  { label: "Total Students", value: cTotal, color: "text-slate-800" },
+                  { label: "Present", value: cPresent, color: "text-green-700" },
+                  { label: "Absent", value: cAbsent, color: "text-red-600" },
+                  { label: "HW Completed", value: cHw, color: "text-indigo-700" },
+                  { label: "HW Pending", value: cHwPending, color: "text-orange-600" },
+                  { label: "Attendance %", value: `${cPct}%`, color: "text-blue-700" },
+                ].map(c => (
+                  <div key={c.label} className="rounded-lg bg-white border border-blue-100 p-3 text-center">
+                    <p className="text-[10px] text-slate-500 mb-1">{c.label}</p>
+                    <p className={`text-xl font-bold ${c.color}`}>{c.value}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </AppShell>
     );
@@ -410,14 +444,15 @@ function SuperAdminStudentsView() {
         </div>
 
         {/* Dashboard KPI Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
           {[
             { label: "Total Students", value: totals.totalStudents, color: "text-slate-800", icon: <Users className="h-7 w-7 text-blue-400/30" /> },
-            { label: "Present", value: totals.present, color: "text-green-600", icon: <CheckCircle className="h-7 w-7 text-green-400/30" /> },
-            { label: "Absent", value: totals.absent, color: "text-red-600", icon: <XCircle className="h-7 w-7 text-red-400/30" /> },
-            { label: "Homework Done", value: totals.hwCompleted, color: "text-indigo-600", icon: <BookOpen className="h-7 w-7 text-indigo-400/30" /> },
+            { label: "Total Present", value: totals.present, color: "text-green-600", icon: <CheckCircle className="h-7 w-7 text-green-400/30" /> },
+            { label: "Total Absent", value: totals.absent, color: "text-red-600", icon: <XCircle className="h-7 w-7 text-red-400/30" /> },
+            { label: "HW Completed", value: totals.hwCompleted, color: "text-indigo-600", icon: <BookOpen className="h-7 w-7 text-indigo-400/30" /> },
+            { label: "HW Pending", value: totals.hwPending, color: "text-orange-600", icon: <Clock className="h-7 w-7 text-orange-400/30" /> },
             { label: "Attendance %", value: `${attPct}%`, color: "text-blue-700", icon: <TrendingUp className="h-7 w-7 text-blue-400/30" /> },
-            { label: "Submissions", value: filtered.length, color: "text-slate-700", icon: <Clock className="h-7 w-7 text-slate-400/30" /> },
+            { label: "Total Submissions", value: allSubs.length, color: "text-slate-700", icon: <CheckCircle className="h-7 w-7 text-slate-400/30" /> },
           ].map(c => (
             <div key={c.label} className="rounded-xl bg-white/70 border border-white/60 shadow-sm p-3 flex items-center justify-between">
               <div>
@@ -486,11 +521,14 @@ function SuperAdminStudentsView() {
             .map(cluster => {
               const clusterSubs = byCluster[cluster.id] ?? [];
               const hasAny = clusterSubs.length > 0;
+              const cRegistered = s.students.filter(st => st.clusterId === cluster.id).length;
               const cTotal   = clusterSubs.reduce((a, b) => a + (b.total_count||0), 0);
               const cPresent = clusterSubs.reduce((a, b) => a + (b.present_count||0), 0);
               const cAbsent  = clusterSubs.reduce((a, b) => a + (b.absent_count||0), 0);
-              const cHw      = clusterSubs.reduce((a, b) => a + (b.homework_completed||0), 0);
+              const cHwDone  = clusterSubs.reduce((a, b) => a + (b.homework_completed||0), 0);
+              const cHwPending = cTotal - cHwDone;
               const cPct     = cTotal > 0 ? ((cPresent/cTotal)*100).toFixed(0) : "0";
+              const submittedDays = new Set(clusterSubs.map(s => s.day)).size;
 
               return (
                 <button
@@ -506,12 +544,15 @@ function SuperAdminStudentsView() {
                     <div>
                       <div className="font-bold text-base text-slate-800">{cluster.name}</div>
                       {hasAny ? (
-                        <div className="flex flex-wrap gap-3 text-xs text-slate-500 mt-0.5">
-                          <span>Total: <strong className="text-slate-700">{cTotal}</strong></span>
+                        <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500 mt-0.5">
+                          <span>Registered: <strong className="text-slate-700">{cRegistered}</strong></span>
+                          <span>Attended: <strong className="text-slate-700">{cTotal}</strong></span>
                           <span>Present: <strong className="text-green-700">{cPresent}</strong></span>
                           <span>Absent: <strong className="text-red-600">{cAbsent}</strong></span>
-                          <span>HW Done: <strong className="text-indigo-600">{cHw}</strong></span>
+                          <span>HW Done: <strong className="text-indigo-600">{cHwDone}</strong></span>
+                          <span>HW Pending: <strong className="text-orange-600">{cHwPending}</strong></span>
                           <span>Att%: <strong className="text-blue-700">{cPct}%</strong></span>
+                          <span>Days Submitted: <strong className="text-slate-700">{submittedDays}</strong></span>
                         </div>
                       ) : (
                         <div className="text-xs text-slate-400 mt-0.5">No submissions yet</div>
@@ -520,7 +561,7 @@ function SuperAdminStudentsView() {
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${hasAny ? "bg-blue-100 text-blue-700" : "bg-slate-200 text-slate-500"}`}>
-                      {hasAny ? `${clusterSubs.length} day(s)` : "Pending"}
+                      {hasAny ? `${submittedDays} day(s)` : "Pending"}
                     </span>
                     {hasAny && <ChevronRight className="h-4 w-4 text-slate-400 group-hover:text-blue-600 transition-colors" />}
                   </div>

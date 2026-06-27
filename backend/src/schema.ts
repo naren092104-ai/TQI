@@ -72,6 +72,23 @@ const COLUMN_MIGRATIONS: { table: string; column: string; ddl: string }[] = [
   // approvals
   { table: "approvals", column: "sessionId",   ddl: "`sessionId` VARCHAR(64)" },
   { table: "approvals", column: "clusterId",   ddl: "`clusterId` VARCHAR(64)" },
+  // tqiReports — add all columns that may be missing from older tables
+  { table: "tqiReports", column: "studentParticipation",  ddl: "`studentParticipation` TEXT" },
+  { table: "tqiReports", column: "volunteerParticipation", ddl: "`volunteerParticipation` TEXT" },
+  { table: "tqiReports", column: "challengesFaced",       ddl: "`challengesFaced` TEXT" },
+  { table: "tqiReports", column: "solutionsProvided",     ddl: "`solutionsProvided` TEXT" },
+  { table: "tqiReports", column: "futureActionPlan",      ddl: "`futureActionPlan` TEXT" },
+  { table: "tqiReports", column: "keyLearningOutcomes",   ddl: "`keyLearningOutcomes` TEXT" },
+  { table: "tqiReports", column: "spocName",              ddl: "`spocName` VARCHAR(255)" },
+  { table: "tqiReports", column: "academicYear",          ddl: "`academicYear` VARCHAR(255)" },
+  { table: "tqiReports", column: "beneficiaries",         ddl: "`beneficiaries` INT DEFAULT 0" },
+  { table: "tqiReports", column: "totalVolunteers",       ddl: "`totalVolunteers` INT DEFAULT 0" },
+  { table: "tqiReports", column: "submittedBy",           ddl: "`submittedBy` VARCHAR(255)" },
+  { table: "tqiReports", column: "submittedAt",           ddl: "`submittedAt` DATETIME" },
+  { table: "tqiReports", column: "pdfGeneratedAt",        ddl: "`pdfGeneratedAt` DATETIME" },
+  { table: "tqiReports", column: "updatedAt",             ddl: "`updatedAt` DATETIME" },
+  { table: "tqiReports", column: "remarks",               ddl: "`remarks` TEXT" },
+  { table: "tqiReports", column: "photos",                ddl: "`photos` JSON" },
   // advances — cluster tracking
   { table: "advances", column: "clusterId",    ddl: "`clusterId` VARCHAR(64)" },
   { table: "advances", column: "clusterName",  ddl: "`clusterName` VARCHAR(255)" },

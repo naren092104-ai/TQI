@@ -366,8 +366,22 @@ exportsRouter.post("/finance/pdf", async (req, res) => {
   try {
     const { clusterId, sessionId, expenseIds = [] } = req.body;
 
-    let expenses = await query("SELECT * FROM expenses WHERE 1=1" + (clusterId ? " AND clusterId = ?" : "") + (sessionId ? " AND sessionId = ?" : ""), 
-      [clusterId, sessionId].filter(Boolean));
+    const whereClauses: string[] = ["1=1"];
+    const queryParams: any[] = [];
+    if (clusterId) {
+      whereClauses.push("clusterId = ?");
+      queryParams.push(clusterId);
+    }
+    if (sessionId) {
+      whereClauses.push("sessionId = ?");
+      queryParams.push(sessionId);
+    }
+    if (Array.isArray(expenseIds) && expenseIds.length > 0) {
+      whereClauses.push(`id IN (${expenseIds.map(() => "?").join(",")})`);
+      queryParams.push(...expenseIds);
+    }
+
+    let expenses = await query(`SELECT * FROM expenses WHERE ${whereClauses.join(" AND ")}`, queryParams);
 
     const doc = new PDFDocument();
     const filename = `finance_${new Date().toISOString().split("T")[0]}.pdf`;
@@ -441,8 +455,22 @@ exportsRouter.post("/finance/excel", async (req, res) => {
   try {
     const { clusterId, sessionId, expenseIds = [] } = req.body;
 
-    let expenses = await query("SELECT * FROM expenses WHERE 1=1" + (clusterId ? " AND clusterId = ?" : "") + (sessionId ? " AND sessionId = ?" : ""), 
-      [clusterId, sessionId].filter(Boolean));
+    const whereClauses: string[] = ["1=1"];
+    const queryParams: any[] = [];
+    if (clusterId) {
+      whereClauses.push("clusterId = ?");
+      queryParams.push(clusterId);
+    }
+    if (sessionId) {
+      whereClauses.push("sessionId = ?");
+      queryParams.push(sessionId);
+    }
+    if (Array.isArray(expenseIds) && expenseIds.length > 0) {
+      whereClauses.push(`id IN (${expenseIds.map(() => "?").join(",")})`);
+      queryParams.push(...expenseIds);
+    }
+
+    let expenses = await query(`SELECT * FROM expenses WHERE ${whereClauses.join(" AND ")}`, queryParams);
 
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet("Finance");

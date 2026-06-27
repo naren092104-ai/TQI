@@ -12,6 +12,11 @@ export interface AuthPayload {
 
 export type UserRole = "SUPER_ADMIN" | "CLUSTER_ADMIN" | "VOLUNTEER" | "FINANCE";
 
+// Normalize role: "Cluster Admin" → "CLUSTER_ADMIN", "Super Admin" → "SUPER_ADMIN"
+function normalizeRole(role: string): string {
+  return role.trim().toUpperCase().replace(/\s+/g, "_");
+}
+
 export function authenticateToken(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -42,19 +47,19 @@ export function authenticateToken(req: Request, res: Response, next: NextFunctio
 export function canCreateStudent(user?: AuthPayload): boolean {
   if (!user) return false;
   const adminRoles = ["SUPER_ADMIN", "CLUSTER_ADMIN"];
-  return adminRoles.includes(user.role.toUpperCase());
+  return adminRoles.includes(normalizeRole(user.role));
 }
 
 export function canEditStudent(user?: AuthPayload): boolean {
   if (!user) return false;
   const adminRoles = ["SUPER_ADMIN", "CLUSTER_ADMIN"];
-  return adminRoles.includes(user.role.toUpperCase());
+  return adminRoles.includes(normalizeRole(user.role));
 }
 
 export function canDeleteStudent(user?: AuthPayload): boolean {
   if (!user) return false;
   const adminRoles = ["SUPER_ADMIN", "CLUSTER_ADMIN"];
-  return adminRoles.includes(user.role.toUpperCase());
+  return adminRoles.includes(normalizeRole(user.role));
 }
 
 export function canViewStudents(user?: AuthPayload): boolean {
@@ -65,22 +70,22 @@ export function canViewStudents(user?: AuthPayload): boolean {
 export function isAdmin(user?: AuthPayload): boolean {
   if (!user) return false;
   const adminRoles = ["SUPER_ADMIN", "CLUSTER_ADMIN", "FINANCE"];
-  return adminRoles.includes(user.role.toUpperCase());
+  return adminRoles.includes(normalizeRole(user.role));
 }
 
 export function isSuperAdmin(user?: AuthPayload): boolean {
   if (!user) return false;
-  return user.role.toUpperCase() === "SUPER_ADMIN";
+  return normalizeRole(user.role) === "SUPER_ADMIN";
 }
 
 export function isClusterAdmin(user?: AuthPayload): boolean {
   if (!user) return false;
-  return user.role.toUpperCase() === "CLUSTER_ADMIN";
+  return normalizeRole(user.role) === "CLUSTER_ADMIN";
 }
 
 export function isVolunteer(user?: AuthPayload): boolean {
   if (!user) return false;
-  return user.role.toUpperCase() === "VOLUNTEER";
+  return normalizeRole(user.role) === "VOLUNTEER";
 }
 
 // Middleware for checking permissions

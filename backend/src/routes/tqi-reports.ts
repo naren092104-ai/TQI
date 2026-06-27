@@ -107,8 +107,8 @@ tqiReportsRouter.post("/", async (req, res) => {
         JSON.stringify(body.photos ?? []),
         body.status ?? "Draft",
         body.submittedBy ?? user.email ?? null,
-        body.submittedAt ?? null,
-        body.pdfGeneratedAt ?? null,
+        body.submittedAt ? new Date(body.submittedAt).toISOString().slice(0, 19).replace("T", " ") : null,
+        body.pdfGeneratedAt ? new Date(body.pdfGeneratedAt).toISOString().slice(0, 19).replace("T", " ") : null,
         now,
         now,
       ]
@@ -139,48 +139,58 @@ tqiReportsRouter.put("/:id", async (req, res) => {
     const body = req.body as Record<string, any>;
     const now = new Date().toISOString().slice(0, 19).replace("T", " ");
 
-    await execute(
-      `UPDATE \`tqiReports\` SET
-        \`clusterName\`=?, \`collegeName\`=?, \`spocName\`=?,
-        \`sessionId\`=?, \`sessionName\`=?, \`day\`=?, \`date\`=?, \`academicYear\`=?,
-        \`sessionObjective\`=?, \`activitiesConducted\`=?, \`keyLearningOutcomes\`=?,
-        \`studentsPresent\`=?, \`studentsAbsent\`=?, \`totalVolunteers\`=?, \`beneficiaries\`=?,
-        \`studentParticipation\`=?, \`volunteerParticipation\`=?,
-        \`challengesFaced\`=?, \`solutionsProvided\`=?, \`futureActionPlan\`=?, \`remarks\`=?,
-        \`photos\`=?, \`status\`=?, \`submittedBy\`=?, \`submittedAt\`=?, \`pdfGeneratedAt\`=?,
-        \`updatedAt\`=?
-      WHERE \`id\`=?`,
-      [
-        body.clusterName ?? null,
-        body.collegeName ?? null,
-        body.spocName ?? null,
-        body.sessionId ?? null,
-        body.sessionName ?? null,
-        body.day ?? null,
-        body.date ?? null,
-        body.academicYear ?? null,
-        body.sessionObjective ?? null,
-        body.activitiesConducted ?? null,
-        body.keyLearningOutcomes ?? null,
-        body.studentsPresent ?? 0,
-        body.studentsAbsent ?? 0,
-        body.totalVolunteers ?? 0,
-        body.beneficiaries ?? 0,
-        body.studentParticipation ?? null,
-        body.volunteerParticipation ?? null,
-        body.challengesFaced ?? null,
-        body.solutionsProvided ?? null,
-        body.futureActionPlan ?? null,
-        body.remarks ?? null,
-        JSON.stringify(body.photos ?? []),
-        body.status ?? existing[0].status ?? "Draft",
-        body.submittedBy ?? null,
-        body.submittedAt ?? null,
-        body.pdfGeneratedAt ?? null,
-        now,
-        req.params.id,
-      ]
+    // Get the actual columns in the table to build a safe UPDATE
+    const colRows = await query<any>(
+      "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tqiReports'"
     );
+    const existingCols = new Set(colRows.map((r: any) => r.COLUMN_NAME as string));
+
+    const fieldMap: Record<string, any> = {
+      clusterName: body.clusterName ?? null,
+      collegeName: body.collegeName ?? null,
+      spocName: body.spocName ?? null,
+      sessionId: body.sessionId ?? null,
+      sessionName: body.sessionName ?? null,
+      day: body.day ?? null,
+      date: body.date ?? null,
+      academicYear: body.academicYear ?? null,
+      sessionObjective: body.sessionObjective ?? null,
+      activitiesConducted: body.activitiesConducted ?? null,
+      keyLearningOutcomes: body.keyLearningOutcomes ?? null,
+      studentsPresent: body.studentsPresent ?? 0,
+      studentsAbsent: body.studentsAbsent ?? 0,
+      totalVolunteers: body.totalVolunteers ?? 0,
+      beneficiaries: body.beneficiaries ?? 0,
+      studentParticipation: body.studentParticipation ?? null,
+      volunteerParticipation: body.volunteerParticipation ?? null,
+      challengesFaced: body.challengesFaced ?? null,
+      solutionsProvided: body.solutionsProvided ?? null,
+      futureActionPlan: body.futureActionPlan ?? null,
+      remarks: body.remarks ?? null,
+      photos: JSON.stringify(body.photos ?? []),
+      status: body.status ?? existing[0].status ?? "Draft",
+      submittedBy: body.submittedBy ?? null,
+      submittedAt: body.submittedAt ? new Date(body.submittedAt).toISOString().slice(0, 19).replace("T", " ") : null,
+      pdfGeneratedAt: body.pdfGeneratedAt ?? null,
+      updatedAt: now,
+    };
+
+    // Only update columns that actually exist in the table
+    const setClauses: string[] = [];
+    const values: any[] = [];
+    for (const [col, val] of Object.entries(fieldMap)) {
+      if (existingCols.has(col)) {
+        setClauses.push(`\`${col}\`=?`);
+        values.push(val);
+      }
+    }
+
+    if (setClauses.length === 0) {
+      return res.status(400).json({ error: "No valid fields to update" });
+    }
+
+    values.push(req.params.id);
+    await execute(`UPDATE \`tqiReports\` SET ${setClauses.join(", ")} WHERE \`id\`=?`, values);
 
     const rows = await query<any>("SELECT * FROM `tqiReports` WHERE `id` = ?", [req.params.id]);
     const r = rows[0];

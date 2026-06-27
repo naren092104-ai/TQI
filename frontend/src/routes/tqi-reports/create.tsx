@@ -286,8 +286,9 @@ function Page() {
     setForm((f) => ({ ...f, [field]: value }));
 
   // ── Save Draft ──────────────────────────────────────────────────────────
-  const handleSave = async (statusOverride?: "Draft" | "Submitted") => {
+  const handleSave = async (statusOverride?: "Draft" | "Submitted", overrideReportId?: string) => {
     const status = statusOverride ?? "Draft";
+    const currentReportId = overrideReportId ?? reportId;
     setSaving(true);
     try {
       const payload: Partial<TqiReport> = {
@@ -299,8 +300,8 @@ function Page() {
       };
 
       let saved: TqiReport;
-      if (reportId) {
-        saved = await updateTqiReport(reportId, payload);
+      if (currentReportId) {
+        saved = await updateTqiReport(currentReportId, payload);
       } else {
         saved = await createTqiReport({ id: newId(), ...payload });
         setReportId(saved.id);
@@ -456,20 +457,95 @@ function Page() {
 
   // ── Submit ────────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
-    if (!form.sessionObjective.trim()) {
-      toast.error("Session Objective is required");
-      return;
-    }
-    if (!form.activitiesConducted.trim()) {
-      toast.error("Activities Conducted is required");
-      return;
-    }
     if (localPhotos.length === 0) {
       toast.error("At least 1 photo is required before submitting");
       return;
     }
+
     setSubmitting(true);
-    await handleSave("Submitted");
+
+    try {
+      let currentId = reportId;
+
+      // Step 1: ensure draft exists (creates if not yet saved)
+      if (!currentId) {
+        toast.info("Saving draft first…");
+        const draftPayload: Partial<TqiReport> = {
+          ...form,
+          photos: [],
+          status: "Draft",
+          submittedBy: user?.name ?? user?.email ?? "",
+        };
+        const saved = await createTqiReport({ id: newId(), ...draftPayload });
+        currentId = saved.id;
+        setReportId(currentId);
+        const current = s.tqiReports as TqiReport[];
+        useStore.setState({ tqiReports: [saved, ...current] as any });
+      }
+
+      // Step 2: upload any pending local-only photos
+      const pendingLocalPhotos = localPhotos.filter(p => p.id.startsWith("local-") && p.localUrl);
+      let finalPhotos = localPhotos.filter(p => !p.id.startsWith("local-"));
+
+      if (pendingLocalPhotos.length > 0) {
+        toast.info(`Uploading ${pendingLocalPhotos.length} photo(s)…`);
+        try {
+          const base64Items = await Promise.all(
+            pendingLocalPhotos.map(async (p) => {
+              const resp = await fetch(p.localUrl!);
+              const blob = await resp.blob();
+              const data = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result as string);
+                reader.readAsDataURL(blob);
+              });
+              return { name: p.name, data, mimeType: blob.type || "image/jpeg" };
+            })
+          );
+          const result = await uploadReportPhotos(currentId, base64Items);
+          finalPhotos = result.photos;
+          setLocalPhotos(result.photos);
+        } catch (uploadErr: any) {
+          toast.error(uploadErr?.message ?? "Photo upload failed — cannot submit");
+          setSubmitting(false);
+          return;
+        }
+      }
+
+      // Step 3: submit with status = "Submitted"
+      toast.info("Submitting report…");
+      const submitPayload: Partial<TqiReport> = {
+        ...form,
+        photos: finalPhotos,
+        status: "Submitted",
+        submittedBy: user?.name ?? user?.email ?? "",
+        submittedAt: new Date().toISOString(),
+      };
+
+      const saved = await updateTqiReport(currentId, submitPayload);
+
+      if (!saved || saved.status !== "Submitted") {
+        throw new Error("Server did not confirm submission — please try again");
+      }
+
+      // Update store and local state
+      setLocalPhotos(saved.photos ?? []);
+      setForm(f => ({ ...f, status: "Submitted" }));
+      const current = s.tqiReports as TqiReport[];
+      const idx = current.findIndex(r => r.id === saved.id);
+      const updated = [...current];
+      if (idx >= 0) updated[idx] = saved; else updated.unshift(saved);
+      useStore.setState({ tqiReports: updated as any });
+
+      toast.success("Report submitted successfully!");
+      nav({ to: "/tqi-reports/submitted" });
+
+    } catch (err: any) {
+      console.error("Submit failed:", err);
+      toast.error(err?.message ?? "Failed to submit report — check backend connection");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const isSubmitted = form.status === "Submitted";

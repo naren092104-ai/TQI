@@ -3,6 +3,8 @@
  * Proper blob-based downloads from backend API endpoints
  */
 
+import { getToken } from "@/utils/auth";
+
 const API_BASE = (import.meta as any).env?.VITE_API_BASE ?? "http://localhost:4000";
 
 /**
@@ -21,7 +23,7 @@ export async function downloadFromApi(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
+        Authorization: `Bearer ${getToken() || ""}`,
       },
       body: JSON.stringify(data),
     });

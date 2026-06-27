@@ -379,8 +379,6 @@ function FinancePage() {
 
   // ── Super Admin Dashboard ─────────────────────────────────────────────────
   if (isSuper && saView === "dashboard") {
-    const allAdvTotal = s.advances.reduce((sum, a) => sum + (a.amount || 0), 0);
-    const allExpTotal = s.expenses.filter(e => e.status === "Submitted" || e.status === "Approved").reduce((sum, e) => sum + (e.grandTotal || e.amount || 0), 0);
     const clusterCards = s.clusters.map(c => {
       const advs = s.advances.filter(a => a.clusterId === c.id).sort((a,b)=>new Date(b.date).getTime()-new Date(a.date).getTime());
       const adv = advs[0]?.amount ?? 0;
@@ -431,11 +429,12 @@ function FinancePage() {
             </div>
           )}
           {/* Global KPIs */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
             {[
-              { label: "Total Advance Released", value: inr(allAdvTotal), color: "text-blue-700" },
-              { label: "Total Expenses Submitted", value: inr(allExpTotal), color: "text-slate-800" },
-              { label: "Total Balance", value: inr(allAdvTotal - allExpTotal), color: allAdvTotal-allExpTotal < 0 ? "text-red-600" : "text-green-600" },
+              { label: "Total Clusters", value: s.clusters.length, color: "text-slate-800" },
+              { label: "Total Submissions", value: s.expenses.filter(e => e.status === "Submitted" || e.status === "Approved").length, color: "text-blue-700" },
+              { label: "Total Amount Spent", value: inr(s.expenses.filter(e => e.status === "Submitted" || e.status === "Approved").reduce((sum, e) => sum + (e.grandTotal || e.amount || 0), 0)), color: "text-slate-800" },
+              { label: "Total Approved", value: inr(s.expenses.filter(e => e.status === "Approved").reduce((sum, e) => sum + (e.grandTotal || e.amount || 0), 0)), color: "text-green-600" },
             ].map(c => (
               <div key={c.label} className="rounded-xl bg-white border shadow-sm p-4">
                 <p className="text-xs text-slate-500">{c.label}</p>
@@ -445,7 +444,7 @@ function FinancePage() {
           </div>
           {/* Cluster Cards */}
           <div className="space-y-3">
-            {clusterCards.map(({ cluster, adv, submitted, balance: bal, sessions, lastDate }) => (
+            {clusterCards.map(({ cluster, adv, submitted, balance: bal, sessions }) => (
               <button key={cluster.id} onClick={() => goToCluster(cluster.id)}
                 className="w-full rounded-xl border bg-white shadow-sm px-4 py-4 flex items-center justify-between hover:bg-blue-50 hover:border-blue-200 transition-colors group text-left">
                 <div className="flex items-center gap-4">
@@ -455,18 +454,43 @@ function FinancePage() {
                   <div>
                     <div className="font-bold text-base text-slate-800 uppercase">{cluster.name}</div>
                     <div className="flex flex-wrap gap-3 text-xs text-slate-500 mt-0.5">
+                      <span>Days Submitted: <strong className="text-slate-700">{sessions} / 8</strong></span>
                       <span>Advance: <strong className="text-blue-700">{inr(adv)}</strong></span>
-                      <span>Submitted: <strong className="text-slate-700">{inr(submitted)}</strong></span>
+                      <span>Total Expense: <strong className="text-slate-700">{inr(submitted)}</strong></span>
                       <span>Balance: <strong className={bal < 0 ? "text-red-600" : "text-green-600"}>{inr(bal)}</strong></span>
-                      <span>Sessions: <strong className="text-slate-700">{sessions}/8</strong></span>
-                      {lastDate && <span>Last: <strong className="text-slate-700">{fmtDate(lastDate)}</strong></span>}
                     </div>
                   </div>
                 </div>
-                <ChevronRight className="h-5 w-5 text-slate-400 group-hover:text-blue-600 transition-colors shrink-0" />
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${sessions > 0 ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-500"}`}>
+                    {sessions > 0 ? "Submitted" : "Pending"}
+                  </span>
+                  <ChevronRight className="h-5 w-5 text-slate-400 group-hover:text-blue-600 transition-colors shrink-0" />
+                </div>
               </button>
             ))}
           </div>
+
+          {/* Overall Grand Total */}
+          {clusterCards.length > 0 && (
+            <div className="mt-4 rounded-xl border-2 border-blue-200 bg-blue-50 p-4">
+              <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+                <h3 className="font-bold text-base text-blue-800">Overall Grand Total — All Clusters</h3>
+              </div>
+              <div className="space-y-1.5 text-sm mb-3">
+                {clusterCards.filter(c => c.submitted > 0).map(({ cluster, submitted }) => (
+                  <div key={cluster.id} className="flex justify-between text-slate-600">
+                    <span>{cluster.name}</span>
+                    <span className="font-semibold text-slate-800">{inr(submitted)}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="border-t border-blue-300 pt-2 flex justify-between">
+                <span className="font-bold text-blue-800 text-base">Overall Grand Total</span>
+                <span className="font-bold text-blue-800 text-lg">{inr(clusterCards.reduce((s, c) => s + c.submitted, 0))}</span>
+              </div>
+            </div>
+          )}
         </div>
       </AppShell>
     );
@@ -511,11 +535,7 @@ function FinancePage() {
                     <div>
                       <div className="font-semibold text-slate-800">{exp.sessionName || `Day ${exp.sessionDay}`} · <span className="text-sm font-normal text-slate-500">{fmtDate(exp.date)}</span></div>
                       <div className="text-xs text-slate-500 flex flex-wrap gap-2 mt-0.5">
-                        {t.travel>0&&<span>Travel: <strong>{inr(t.travel)}</strong></span>}
-                        {t.food>0&&<span>Food: <strong>{inr(t.food)}</strong></span>}
-                        {t.st>0&&<span>Stationery: <strong>{inr(t.st)}</strong></span>}
-                        {t.other>0&&<span>Other: <strong>{inr(t.other)}</strong></span>}
-                        <span>Total: <strong className="text-blue-700">{inr(exp.grandTotal||exp.amount||0)}</strong></span>
+                        <span>Grand Total: <strong className="text-blue-700">{inr(exp.grandTotal||exp.amount||0)}</strong></span>
                       </div>
                     </div>
                   </div>
@@ -620,10 +640,6 @@ function FinancePage() {
                 {oEntries.filter(e=>e.amount>0).map((e,i)=><tr key={e.id} className="border-b hover:bg-slate-50"><td className="px-3 py-2">{tEntries.length+fEntries.filter(f=>f.count>0).length+stEntries.filter(s=>s.quantity>0).length+i+1}</td><td className="px-3 py-2">Other</td><td className="px-3 py-2 font-medium">{e.description||"Misc"}</td><td className="px-3 py-2 text-center">—</td><td className="px-3 py-2">—</td><td className="px-3 py-2 font-semibold text-right">{inr(e.amount)}</td><td className="px-3 py-2">{e.bills.map(b=>b.url?<img key={b.id} src={b.url} alt="" className="h-8 w-8 object-contain rounded border inline-block mr-1"/>:null)}</td><td className="px-3 py-2 text-slate-500">{e.remarks||"—"}</td></tr>)}
               </tbody>
               <tfoot>
-                {tTotal>0&&<tr className="bg-slate-50 font-semibold border-t"><td colSpan={4} className="px-3 py-1.5"/><td className="px-3 py-1.5 text-right text-slate-600">Travel Total</td><td className="px-3 py-1.5 text-right">{inr(tTotal)}</td><td colSpan={2}/></tr>}
-                {fTotal>0&&<tr className="bg-slate-50 font-semibold border-t"><td colSpan={4}/><td className="px-3 py-1.5 text-right text-slate-600">Food Total</td><td className="px-3 py-1.5 text-right">{inr(fTotal)}</td><td colSpan={2}/></tr>}
-                {stTotal>0&&<tr className="bg-slate-50 font-semibold border-t"><td colSpan={4}/><td className="px-3 py-1.5 text-right text-slate-600">Stationery Total</td><td className="px-3 py-1.5 text-right">{inr(stTotal)}</td><td colSpan={2}/></tr>}
-                {oTotal>0&&<tr className="bg-slate-50 font-semibold border-t"><td colSpan={4}/><td className="px-3 py-1.5 text-right text-slate-600">Other Total</td><td className="px-3 py-1.5 text-right">{inr(oTotal)}</td><td colSpan={2}/></tr>}
                 <tr className="bg-blue-50 border-t font-bold text-blue-700"><td colSpan={4}/><td className="px-3 py-2 text-right text-sm">Grand Total</td><td className="px-3 py-2 text-right text-sm">{inr(grand)}</td><td colSpan={2}/></tr>
                 <tr className="bg-green-50 border-t font-bold text-green-700"><td colSpan={4}/><td className="px-3 py-2 text-right text-sm">Advance Released</td><td className="px-3 py-2 text-right text-sm">{inr(adv)}</td><td colSpan={2}/></tr>
                 <tr className={`border-t font-bold ${bal<0?"bg-red-50 text-red-600":"bg-emerald-50 text-emerald-700"}`}><td colSpan={4}/><td className="px-3 py-2 text-right text-sm">Balance</td><td className="px-3 py-2 text-right text-sm">{inr(bal)}</td><td colSpan={2}/></tr>
