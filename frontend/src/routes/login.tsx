@@ -54,7 +54,7 @@ function LoginPage() {
         {/* HERO */}
         <div className="relative hidden flex-col gradient-hero p-10 text-primary-foreground lg:flex">
           <div className="flex items-center gap-3">
-            <div className="grid h-11 w-11 place-items-center rounded-xl gradient-secondary font-black">T</div>
+            <img src="/logo.png" alt="TQI Logo" width={44} height={44} className="shrink-0 rounded-lg" />
             <div>
               <div className="text-lg font-bold">Talent Quest for India</div>
               <div className="text-xs text-primary-foreground/70">Super Admin Command Center</div>

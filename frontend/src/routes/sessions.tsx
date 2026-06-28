@@ -21,10 +21,11 @@ export const Route = createFileRoute("/sessions")({
 });
 
 const STATUS_STYLES: Record<Session["status"], { cls: string; icon: any }> = {
-  Planned:   { cls: "bg-blue-100 text-blue-700 border-blue-200",    icon: Clock },
+  Planned:   { cls: "bg-blue-100 text-blue-700 border-blue-200",      icon: Clock },
   Ongoing:   { cls: "bg-yellow-100 text-yellow-700 border-yellow-200", icon: Clock },
-  Completed: { cls: "bg-green-100 text-green-700 border-green-200",  icon: CheckCircle2 },
-  Cancelled: { cls: "bg-red-100 text-red-700 border-red-200",        icon: XCircle },
+  Completed: { cls: "bg-green-100 text-green-700 border-green-200",   icon: CheckCircle2 },
+  Cancelled: { cls: "bg-red-100 text-red-700 border-red-200",         icon: XCircle },
+  Locked:    { cls: "bg-slate-100 text-slate-600 border-slate-200",   icon: Clock },
 };
 
 function Page() {

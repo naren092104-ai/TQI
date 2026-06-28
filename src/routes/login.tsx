@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Sparkles, Users, School, Wallet, Shield } from "lucide-react";
+import { TqiLogoMark } from "@/lib/logo";
 import { toast } from "sonner";
 import { useStore } from "@/lib/store";
 import { loginUser, setAuthToken } from "@/lib/api/auth";
@@ -41,7 +42,7 @@ function LoginPage() {
         {/* HERO */}
         <div className="relative hidden flex-col gradient-hero p-10 text-primary-foreground lg:flex">
           <div className="flex items-center gap-3">
-            <div className="grid h-11 w-11 place-items-center rounded-xl gradient-secondary font-black">T</div>
+            <div className="grid h-11 w-11 place-items-center rounded-xl gradient-secondary font-black"><TqiLogoMark size={44} /></div>
             <div>
               <div className="text-lg font-bold">Talent Quest for India</div>
               <div className="text-xs text-primary-foreground/70">Super Admin Command Center</div>

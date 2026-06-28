@@ -18,6 +18,7 @@ import { useStore, newId, type Volunteer } from "@/lib/store";
 import { useAuth, isClusterAdmin } from "@/lib/auth";
 import { toast } from "sonner";
 import { downloadMock, toCSV } from "@/lib/format";
+import { exportVolunteersPdf, exportVolunteersExcel } from "@/lib/api-exports";
 
 export const Route = createFileRoute("/volunteers")({
   head: () => ({ meta: [{ title: "Volunteers — TQI Admin" }] }),
@@ -116,7 +117,26 @@ function Page() {
         actions={
           <>
             <Button variant="outline" onClick={() => setImportOpen(true)}><Upload className="h-4 w-4" /> Bulk Import</Button>
-            <Button variant="outline" onClick={() => downloadMock("volunteers.csv", toCSV(s.volunteers as any), "text/csv")}><Download className="h-4 w-4" /> Export</Button>
+            <Button variant="outline" onClick={() => {
+              toast.promise(
+                exportVolunteersExcel(filterCluster !== "all" ? filterCluster : undefined),
+                {
+                  loading: "Generating Excel...",
+                  success: "Excel exported successfully",
+                  error: (err) => `Failed: ${err.message}`,
+                }
+              );
+            }}><Download className="h-4 w-4" /> Export Excel</Button>
+            <Button variant="outline" onClick={() => {
+              toast.promise(
+                exportVolunteersPdf(filterCluster !== "all" ? filterCluster : undefined),
+                {
+                  loading: "Generating PDF...",
+                  success: "PDF exported successfully",
+                  error: (err) => `Failed: ${err.message}`,
+                }
+              );
+            }}><Download className="h-4 w-4" /> Export PDF</Button>
             <Button onClick={openCreate}><Plus className="h-4 w-4" /> Create Volunteer</Button>
           </>
         }
@@ -127,6 +147,35 @@ function Page() {
         <KpiCard label="Colleges" value={new Set(s.volunteers.map(v => v.college).filter(Boolean)).size} icon={HeartHandshake} tone="info" />
         <KpiCard label="Total Sessions" value={s.volunteers.reduce((a, b) => a + b.sessions, 0)} icon={HeartHandshake} tone="primary" />
         <KpiCard label="Avg Sessions" value={(s.volunteers.reduce((a, b) => a + b.sessions, 0) / Math.max(1, s.volunteers.length)).toFixed(1)} icon={HeartHandshake} tone="success" />
+      </div>
+
+      {/* Cluster summary cards — click to filter */}
+      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        {s.clusters.map((c) => {
+          const count = s.volunteers.filter(v => v.clusterId === c.id).length;
+          const active = filterCluster === c.id;
+          return (
+            <button
+              key={c.id}
+              onClick={() => setFilterCluster(active ? "all" : c.id)}
+              className={`group flex items-center justify-between rounded-xl border px-4 py-3 text-left transition-all ${
+                active
+                  ? "border-primary bg-primary text-primary-foreground shadow-md"
+                  : "border-border bg-card hover:border-primary/50 hover:bg-primary/5"
+              }`}
+            >
+              <div className="min-w-0">
+                <div className={`truncate text-sm font-semibold ${active ? "text-primary-foreground" : "text-foreground"}`}>{c.name}</div>
+                <div className={`text-xs mt-0.5 ${active ? "text-primary-foreground/70" : "text-muted-foreground"}`}>{count} volunteer{count !== 1 ? "s" : ""}</div>
+              </div>
+              <div className={`ml-3 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-base font-bold ${
+                active ? "bg-primary-foreground/20 text-primary-foreground" : "bg-muted text-foreground"
+              }`}>
+                {count}
+              </div>
+            </button>
+          );
+        })}
       </div>
 
       <DataTable
@@ -158,7 +207,18 @@ function Page() {
           { key: "year", header: "Year", render: (r) => r.year ? <Badge variant="outline">{yearLabel(r.year)}</Badge> : "—" },
           { key: "phone", header: "Mobile" },
           { key: "email", header: "Email" },
-          { key: "cluster", header: "Cluster", render: (r) => cName(r.clusterId) },
+          { key: "cluster", header: "Cluster", render: (r) => {
+            const name = cName(r.clusterId);
+            return (
+              <button
+                onClick={() => setFilterCluster(r.clusterId)}
+                className="rounded px-1.5 py-0.5 text-sm font-medium text-primary underline-offset-2 hover:underline focus:outline-none"
+                title={`Filter by ${name}`}
+              >
+                {name}
+              </button>
+            );
+          } },
           { key: "sessions", header: "Sessions", render: (r) => <Badge>{r.sessions}</Badge> },          {
             key: "_act", header: "", className: "text-right", render: (r) => (
               <div className="flex justify-end gap-1">

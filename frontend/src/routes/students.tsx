@@ -18,6 +18,7 @@ import { useStore, newId, type Student } from "@/lib/store";
 import { useAuth, isAdmin } from "@/lib/auth";
 import { toast } from "sonner";
 import { downloadMock, toCSV } from "@/lib/format";
+import { exportStudentsPdf, exportStudentsExcel } from "@/lib/api-exports";
 
 export const Route = createFileRoute("/students")({
   head: () => ({ meta: [{ title: "Students — TQI Admin" }] }),
@@ -26,35 +27,35 @@ export const Route = createFileRoute("/students")({
 
 const STANDARDS = ["9", "10", "11", "12"] as const;
 
-// Excel export helper (CSV with .xlsx extension for Excel compatibility)
-function exportToExcel(rows: Student[], getChain: (id: string) => any) {
-  const data = rows.map((st) => {
-    const { sc, v, p, c } = getChain(st.schoolId);
-    return {
-      "Student Name": st.name,
-      "Mobile Number": st.phone,
-      "Standard": st.grade,
-      "School": sc?.name ?? "—",
-      "Village": v?.name ?? "—",
-      "Panchayat": p?.name ?? "—",
-      "Cluster": c?.name ?? "—",
-      "Gender": st.gender === "M" ? "Male" : "Female",
-      "Roll No": st.rollNo,
-      "Status": st.status ?? "Active",
-    };
-  });
-  downloadMock("students_export.csv", toCSV(data), "text/csv");
-  toast.success(`Exported ${data.length} students to Excel`);
+// Returns the allowed standards based on school type
+function getSchoolStandards(schoolType?: string): string[] {
+  if (!schoolType) return ["9", "10", "11", "12"];
+  const t = schoolType.toLowerCase().trim();
+  if (t === "higher secondary" || t === "highersecondary") return ["11", "12"];
+  if (t === "high") return ["9", "10"];
+  return ["9", "10", "11", "12"];
+}
+
+// Excel export helper - now calls backend
+function handleExportExcel(clusterId?: string, schoolId?: string) {
+  toast.promise(
+    exportStudentsExcel(clusterId, schoolId),
+    {
+      loading: "Generating Excel file...",
+      success: "Students exported successfully",
+      error: (err) => `Failed to export: ${err.message}`,
+    }
+  );
 }
 
 // Download blank template (only 3 columns needed)
-function downloadTemplate() {
+function downloadTemplate(allowedStandards: string[] = ["9", "10", "11", "12"]) {
+  const s1 = allowedStandards[0];
+  const s2 = allowedStandards[allowedStandards.length > 1 ? 1 : 0];
   const content = [
     "Student Name,Mobile Number,Standard",
-    "Arun Kumar,9876543210,9",
-    "Priya Devi,9876543211,10",
-    "Ravi Shankar,9876543212,11",
-    "Meena Kumari,9876543213,12",
+    `Arun Kumar,9876543210,${s1}`,
+    `Priya Devi,9876543211,${s2}`,
   ].join("\n");
   downloadMock("students_template.csv", content, "text/csv");
   toast.success("Template downloaded — fill Student Name, Mobile Number, Standard only");
@@ -79,7 +80,6 @@ function Page() {
   // Hierarchy selectors for add form
   const [addPanchayat, setAddPanchayat] = useState("");
   const [addVillage, setAddVillage] = useState("");
-  const [addSchool, setAddSchool] = useState("");
   const [addForm, setAddForm] = useState({ name: "", phone: "", grade: "" });
 
   // ── Bulk Upload Dialog (multi-step) ──
@@ -87,7 +87,6 @@ function Page() {
   const [bulkStep, setBulkStep] = useState(1); // 1=hierarchy, 2=upload, 3=preview, 4=result
   const [bulkPanchayat, setBulkPanchayat] = useState("");
   const [bulkVillage, setBulkVillage] = useState("");
-  const [bulkSchool, setBulkSchool] = useState("");
   const [previewRows, setPreviewRows] = useState<PreviewRow[]>([]);
   const [importResult, setImportResult] = useState({ imported: 0, failed: 0, duplicates: 0 });
   const fileRef = useRef<HTMLInputElement>(null);
@@ -96,6 +95,7 @@ function Page() {
   const [view, setView] = useState<Student | null>(null);
 
   // ── Filters ──
+  const [filterCluster, setFilterCluster] = useState("all");
   const [filterPanchayat, setFilterPanchayat] = useState("all");
   const [filterVillage, setFilterVillage] = useState("all");
   const [filterSchool, setFilterSchool] = useState("all");
@@ -118,6 +118,19 @@ function Page() {
     addVillage ? s.schools.filter(sc => sc.villageId === addVillage) : [],
     [s.schools, addVillage]);
 
+  const addSchool = useMemo(() => {
+    if (!addVillage) return "";
+    if (edit?.schoolId && addSchools.some(sc => sc.id === edit.schoolId)) return edit.schoolId;
+    return addSchools.length === 1 ? addSchools[0].id : "";
+  }, [addSchools, addVillage, edit?.schoolId]);
+
+  // Standards allowed for the derived school (based on school type)
+  const addSchoolObj = useMemo(() => s.schools.find(sc => sc.id === addSchool), [s.schools, addSchool]);
+  const addAllowedStandards = useMemo(() => getSchoolStandards(addSchoolObj?.type), [addSchoolObj]);
+
+  // Cascading options for bulk
+
+
   // Cascading options for bulk
   const bulkVillages = useMemo(() =>
     bulkPanchayat ? s.villages.filter(v => v.panchayatId === bulkPanchayat) : [],
@@ -125,6 +138,15 @@ function Page() {
   const bulkSchools = useMemo(() =>
     bulkVillage ? s.schools.filter(sc => sc.villageId === bulkVillage) : [],
     [s.schools, bulkVillage]);
+
+  const bulkSchool = useMemo(() => {
+    if (!bulkVillage) return "";
+    return bulkSchools.length === 1 ? bulkSchools[0].id : "";
+  }, [bulkSchools, bulkVillage]);
+
+  // Standards allowed for the derived bulk school
+  const bulkSchoolObj = useMemo(() => s.schools.find(sc => sc.id === bulkSchool), [s.schools, bulkSchool]);
+  const bulkAllowedStandards = useMemo(() => getSchoolStandards(bulkSchoolObj?.type), [bulkSchoolObj]);
 
   // Filter villages/schools for table filters
   const filteredVillages = useMemo(() =>
@@ -139,6 +161,9 @@ function Page() {
   // Filtered rows
   const rows = useMemo(() => {
     let r = s.students;
+    if (filterCluster !== "all") {
+      r = r.filter(st => st.clusterId === filterCluster || chain(st.schoolId).c?.id === filterCluster);
+    }
     if (filterPanchayat !== "all") {
       const vIds = s.villages.filter(v => v.panchayatId === filterPanchayat).map(v => v.id);
       const scIds = s.schools.filter(sc => vIds.includes(sc.villageId)).map(sc => sc.id);
@@ -151,25 +176,28 @@ function Page() {
     if (filterSchool !== "all") r = r.filter(st => st.schoolId === filterSchool);
     if (filterGrade !== "all") r = r.filter(st => st.grade === filterGrade);
     return r;
-  }, [s.students, s.villages, s.schools, filterPanchayat, filterVillage, filterSchool, filterGrade]);
+  }, [s.students, s.villages, s.schools, s.panchayats, s.clusters, filterCluster, filterPanchayat, filterVillage, filterSchool, filterGrade]);
 
   // ── Individual Save ──
   const saveStudent = async () => {
     if (!addForm.name.trim()) return toast.error("Student name is required");
     if (!addForm.phone.trim()) return toast.error("Mobile number is required");
-    if (!addSchool) return toast.error("Please select a school");
+    if (!addVillage) return toast.error("Please select a village");
     if (!addForm.grade) return toast.error("Standard is required");
-    const { v, p, c } = chain(addSchool);
+    // Resolve hierarchy from village (school is optional)
+    const village = s.villages.find(v => v.id === addVillage);
+    const panchayat = s.panchayats.find(p => p.id === village?.panchayatId);
+    const cluster = s.clusters.find(c => c.id === panchayat?.clusterId);
     try {
       await s.upsert("students", {
         id: edit?.id ?? newId(),
         name: addForm.name,
         phone: addForm.phone,
         grade: addForm.grade,
-        schoolId: addSchool,
-        villageId: v?.id ?? "",
-        panchayatId: p?.id ?? "",
-        clusterId: c?.id ?? "",
+        schoolId: addSchool ?? "",
+        villageId: addVillage,
+        panchayatId: panchayat?.id ?? "",
+        clusterId: cluster?.id ?? "",
         rollNo: edit?.rollNo ?? "",
         gender: edit?.gender ?? "M",
         guardian: edit?.guardian ?? "",
@@ -178,7 +206,7 @@ function Page() {
       toast.success(edit ? "Student updated" : "Student added");
       setAddOpen(false);
       setEdit(null);
-      setAddPanchayat(""); setAddVillage(""); setAddSchool("");
+      setAddPanchayat(""); setAddVillage("");
       setAddForm({ name: "", phone: "", grade: "" });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save student");
@@ -187,7 +215,7 @@ function Page() {
 
   const openCreate = () => {
     setEdit(null);
-    setAddPanchayat(""); setAddVillage(""); setAddSchool("");
+    setAddPanchayat(""); setAddVillage("");
     setAddForm({ name: "", phone: "", grade: "" });
     setAddOpen(true);
   };
@@ -197,7 +225,6 @@ function Page() {
     const { sc, v, p } = chain(st.schoolId);
     setAddPanchayat(p?.id ?? "");
     setAddVillage(v?.id ?? "");
-    setAddSchool(sc?.id ?? "");
     setAddForm({ name: st.name, phone: st.phone, grade: st.grade });
     setAddOpen(true);
   };
@@ -206,6 +233,7 @@ function Page() {
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (!bulkSchool) return toast.error("Cannot upload until a unique school is derived for the selected village");
     const reader = new FileReader();
     reader.onload = (ev) => {
       const text = ev.target?.result as string;
@@ -218,6 +246,8 @@ function Page() {
       if (nameIdx === -1 || phoneIdx === -1 || gradeIdx === -1)
         return toast.error("CSV must have columns: Student Name, Mobile Number, Standard");
       const existingPhones = new Set(s.students.map(st => st.phone));
+      const schoolObj = s.schools.find(sc => sc.id === bulkSchool);
+      const allowedGrades = getSchoolStandards(schoolObj?.type);
       const parsed: PreviewRow[] = lines.slice(1).map(line => {
         const cols = line.split(",").map(c => c.trim());
         const name = cols[nameIdx] ?? "";
@@ -226,7 +256,7 @@ function Page() {
         let error = "";
         if (!name) error = "Name missing";
         else if (!phone || !/^\d{10}$/.test(phone)) error = "Invalid mobile (10 digits required)";
-        else if (!["9","10","11","12"].includes(grade)) error = "Invalid standard (9/10/11/12 only)";
+        else if (!allowedGrades.includes(grade)) error = `Invalid standard (${allowedGrades.join("/")} only for this school)`;
         else if (existingPhones.has(phone)) error = "Duplicate mobile number";
         return { name, phone, grade, valid: !error, error };
       });
@@ -238,7 +268,7 @@ function Page() {
 
   // ── Bulk Import: Commit ──
   const commitImport = () => {
-    if (!bulkSchool) return toast.error("No school selected");
+    if (!bulkSchool) return toast.error("No school found for this village");
     const { v, p, c } = chain(bulkSchool);
     const valid = previewRows.filter(r => r.valid);
     const duplicates = previewRows.filter(r => r.error?.includes("Duplicate")).length;
@@ -255,7 +285,7 @@ function Page() {
   };
 
   const resetBulk = () => {
-    setBulkStep(1); setBulkPanchayat(""); setBulkVillage(""); setBulkSchool("");
+    setBulkStep(1); setBulkPanchayat(""); setBulkVillage("");
     setPreviewRows([]); setImportResult({ imported: 0, failed: 0, duplicates: 0 });
     if (fileRef.current) fileRef.current.value = "";
   };
@@ -270,15 +300,27 @@ function Page() {
     <AppShell>
       <PageHeader
         title="Students"
-        description="Hierarchy-first student management — select Panchayat → Village → School, then add or bulk import."
+        description="Hierarchy-first student management — select Panchayat → Village, then add or bulk import."
         actions={
           canManage ? (
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" onClick={downloadTemplate}>
                 <Download className="h-4 w-4" /> Download Template
               </Button>
-              <Button variant="outline" onClick={() => exportToExcel(rows, chain)}>
+              <Button variant="outline" onClick={() => handleExportExcel(filterCluster !== "all" ? filterCluster : undefined, filterSchool !== "all" ? filterSchool : undefined)}>
                 <FileSpreadsheet className="h-4 w-4" /> Export Excel
+              </Button>
+              <Button variant="outline" onClick={() => {
+                toast.promise(
+                  exportStudentsPdf(filterCluster !== "all" ? filterCluster : undefined, filterSchool !== "all" ? filterSchool : undefined),
+                  {
+                    loading: "Generating PDF...",
+                    success: "PDF exported successfully",
+                    error: (err) => `Failed: ${err.message}`,
+                  }
+                );
+              }}>
+                <Download className="h-4 w-4" /> Export PDF
               </Button>
               <Button variant="outline" onClick={() => { resetBulk(); setBulkOpen(true); }}>
                 <Upload className="h-4 w-4" /> Bulk Upload
@@ -299,11 +341,49 @@ function Page() {
         <KpiCard label="Schools" value={new Set(s.students.map(x => x.schoolId)).size} icon={Users} tone="success" />
       </div>
 
+      {/* Cluster summary cards — click to filter */}
+      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        {s.clusters.map((c) => {
+          const count = s.students.filter(st =>
+            st.clusterId === c.id || chain(st.schoolId).c?.id === c.id
+          ).length;
+          const active = filterCluster === c.id;
+          return (
+            <button
+              key={c.id}
+              onClick={() => { setFilterCluster(active ? "all" : c.id); setFilterPanchayat("all"); setFilterVillage("all"); setFilterSchool("all"); }}
+              className={`group flex items-center justify-between rounded-xl border px-4 py-3 text-left transition-all ${
+                active
+                  ? "border-primary bg-primary text-primary-foreground shadow-md"
+                  : "border-border bg-card hover:border-primary/50 hover:bg-primary/5"
+              }`}
+            >
+              <div className="min-w-0">
+                <div className={`truncate text-sm font-semibold ${active ? "text-primary-foreground" : "text-foreground"}`}>{c.name}</div>
+                <div className={`text-xs mt-0.5 ${active ? "text-primary-foreground/70" : "text-muted-foreground"}`}>{count} student{count !== 1 ? "s" : ""}</div>
+              </div>
+              <div className={`ml-3 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-base font-bold ${
+                active ? "bg-primary-foreground/20 text-primary-foreground" : "bg-muted text-foreground"
+              }`}>
+                {count}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
       {/* Table with cascade filters */}
       <DataTable
         exportName="students" rows={rows} searchKeys={["name", "phone", "rollNo"] as any}
         filterBar={
           <div className="flex flex-wrap gap-2">
+            <Select value={filterCluster} onValueChange={(v) => { setFilterCluster(v); setFilterPanchayat("all"); setFilterVillage("all"); setFilterSchool("all"); }}>
+              <SelectTrigger className="h-9 w-40"><SelectValue placeholder="Cluster" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Clusters</SelectItem>
+                {s.clusters.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
             <Select value={filterPanchayat} onValueChange={(v) => { setFilterPanchayat(v); setFilterVillage("all"); setFilterSchool("all"); }}>
               <SelectTrigger className="h-9 w-40"><SelectValue placeholder="Panchayat" /></SelectTrigger>
               <SelectContent>
@@ -341,8 +421,19 @@ function Page() {
           { key: "school", header: "School", render: (r) => <span className="text-sm">{chain(r.schoolId).sc?.name ?? "—"}</span> },
           { key: "village", header: "Village", render: (r) => <span className="text-sm text-muted-foreground">{chain(r.schoolId).v?.name ?? "—"}</span> },
           { key: "panchayat", header: "Panchayat", render: (r) => <span className="text-sm text-muted-foreground">{chain(r.schoolId).p?.name ?? "—"}</span> },
-          { key: "attendance", header: "Attendance %", render: () => <span className="text-sm">—</span> },
-          { key: "homework", header: "Homework %", render: () => <span className="text-sm">—</span> },
+          { key: "cluster", header: "Cluster", render: (r) => {
+            const c = chain(r.schoolId).c;
+            return c ? (
+              <button
+                onClick={() => { setFilterCluster(c.id); setFilterPanchayat("all"); setFilterVillage("all"); setFilterSchool("all"); }}
+                className="rounded px-1.5 py-0.5 text-sm font-medium text-primary underline-offset-2 hover:underline focus:outline-none"
+                title={`Filter by ${c.name}`}
+              >
+                {c.name}
+              </button>
+            ) : <span className="text-sm text-muted-foreground">—</span>;
+          } },
+
           {
             key: "_act", header: "", className: "text-right", render: (r) => (
               <div className="flex justify-end gap-1">
@@ -372,36 +463,19 @@ function Page() {
               <p className="text-xs font-semibold uppercase text-muted-foreground">Step 1 — Select Hierarchy</p>
               <div>
                 <Label>Panchayat <span className="text-destructive">*</span></Label>
-                <Select value={addPanchayat} onValueChange={(v) => { setAddPanchayat(v); setAddVillage(""); setAddSchool(""); }}>
+                <Select value={addPanchayat} onValueChange={(v) => { setAddPanchayat(v); setAddVillage(""); }}>
                   <SelectTrigger><SelectValue placeholder="Select Panchayat" /></SelectTrigger>
                   <SelectContent>{s.panchayats.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div>
                 <Label>Village <span className="text-destructive">*</span></Label>
-                <Select value={addVillage} onValueChange={(v) => { setAddVillage(v); setAddSchool(""); }} disabled={!addPanchayat}>
+                <Select value={addVillage} onValueChange={(v) => { setAddVillage(v); }} disabled={!addPanchayat}>
                   <SelectTrigger><SelectValue placeholder="Select Village" /></SelectTrigger>
                   <SelectContent>{addVillages.map(v => <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
-              <div>
-                <Label>School <span className="text-destructive">*</span></Label>
-                <Select value={addSchool} onValueChange={setAddSchool} disabled={!addVillage}>
-                  <SelectTrigger><SelectValue placeholder="Select School" /></SelectTrigger>
-                  <SelectContent>{addSchools.map(sc => <SelectItem key={sc.id} value={sc.id}>{sc.name}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-              {addSchool && (() => {
-                const { v, p, c } = chain(addSchool);
-                return (
-                  <div className="flex flex-wrap gap-1 pt-1">
-                    <Badge variant="secondary">📍 {p?.name}</Badge>
-                    <Badge variant="secondary">🌳 {v?.name}</Badge>
-                    <Badge variant="secondary">🏫 {s.schools.find(sc => sc.id === addSchool)?.name}</Badge>
-                    <Badge variant="outline">🗂 {c?.name}</Badge>
-                  </div>
-                );
-              })()}
+
             </div>
             {/* Step 2: Student Details */}
             <div className="rounded-lg border border-border bg-muted/40 p-4 space-y-3">
@@ -418,14 +492,14 @@ function Page() {
                 <Label>Standard <span className="text-destructive">*</span></Label>
                 <Select value={addForm.grade} onValueChange={(v) => setAddForm({ ...addForm, grade: v })}>
                   <SelectTrigger><SelectValue placeholder="Select standard" /></SelectTrigger>
-                  <SelectContent>{STANDARDS.map(g => <SelectItem key={g} value={g}>Standard {g}</SelectItem>)}</SelectContent>
+                  <SelectContent>{addAllowedStandards.map(g => <SelectItem key={g} value={g}>Standard {g}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
-            <Button onClick={saveStudent} disabled={!addSchool || !addForm.name.trim() || !addForm.phone.trim() || !addForm.grade}>
+            <Button onClick={saveStudent} disabled={!addVillage || !addForm.name.trim() || !addForm.phone.trim() || !addForm.grade}>
               Save Student
             </Button>
           </DialogFooter>
@@ -459,40 +533,23 @@ function Page() {
                 <p className="text-sm font-semibold">Select the hierarchy for all students in this upload</p>
                 <div>
                   <Label>Panchayat <span className="text-destructive">*</span></Label>
-                  <Select value={bulkPanchayat} onValueChange={(v) => { setBulkPanchayat(v); setBulkVillage(""); setBulkSchool(""); }}>
+                  <Select value={bulkPanchayat} onValueChange={(v) => { setBulkPanchayat(v); setBulkVillage(""); }}>
                     <SelectTrigger><SelectValue placeholder="Select Panchayat" /></SelectTrigger>
                     <SelectContent>{s.panchayats.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
                 <div>
                   <Label>Village <span className="text-destructive">*</span></Label>
-                  <Select value={bulkVillage} onValueChange={(v) => { setBulkVillage(v); setBulkSchool(""); }} disabled={!bulkPanchayat}>
+                  <Select value={bulkVillage} onValueChange={(v) => { setBulkVillage(v); }} disabled={!bulkPanchayat}>
                     <SelectTrigger><SelectValue placeholder="Select Village" /></SelectTrigger>
                     <SelectContent>{bulkVillages.map(v => <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
-                <div>
-                  <Label>School <span className="text-destructive">*</span></Label>
-                  <Select value={bulkSchool} onValueChange={setBulkSchool} disabled={!bulkVillage}>
-                    <SelectTrigger><SelectValue placeholder="Select School" /></SelectTrigger>
-                    <SelectContent>{bulkSchools.map(sc => <SelectItem key={sc.id} value={sc.id}>{sc.name}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
-                {bulkSchool && (
-                  <div className="rounded-md bg-primary/5 border border-primary/20 p-3 text-sm space-y-1">
-                    <p className="font-semibold text-primary">All uploaded students will be assigned to:</p>
-                    <div className="grid grid-cols-2 gap-1 text-xs">
-                      <span className="text-muted-foreground">Panchayat:</span><span className="font-medium">{bulkPanchayatName}</span>
-                      <span className="text-muted-foreground">Village:</span><span className="font-medium">{bulkVillageName}</span>
-                      <span className="text-muted-foreground">School:</span><span className="font-medium">{bulkSchoolName}</span>
-                      <span className="text-muted-foreground">Cluster:</span><span className="font-medium">{bulkClusterName}</span>
-                    </div>
-                  </div>
-                )}
+
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setBulkOpen(false)}>Cancel</Button>
-                <Button onClick={() => setBulkStep(2)} disabled={!bulkSchool}>Next <ChevronRight className="h-4 w-4" /></Button>
+                <Button onClick={() => setBulkStep(2)} disabled={!bulkVillage}>Next <ChevronRight className="h-4 w-4" /></Button>
               </DialogFooter>
             </div>
           )}
@@ -510,6 +567,7 @@ function Page() {
                   <p className="text-sm font-medium">Upload your Excel / CSV file</p>
                   <p className="text-xs text-muted-foreground mt-1">Only 3 columns needed: Student Name, Mobile Number, Standard</p>
                   <p className="text-xs text-destructive mt-1">Do NOT include Panchayat, Village, School — system auto-assigns</p>
+                  <p className="text-xs text-primary mt-1">Valid standards for this school: <b>{bulkAllowedStandards.join(", ")}</b></p>
                 </div>
                 <Input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" className="max-w-xs mx-auto" onChange={handleFileUpload} />
               </div>
@@ -517,14 +575,17 @@ function Page() {
                 <p className="text-xs font-semibold mb-2">Excel Template Format:</p>
                 <table className="w-full text-xs border-collapse">
                   <thead><tr className="bg-muted-foreground/10">{["Student Name","Mobile Number","Standard"].map(h => <th key={h} className="border border-border px-2 py-1 text-left font-semibold">{h}</th>)}</tr></thead>
-                  <tbody>{[["Arun Kumar","9876543210","9"],["Priya Devi","9876543211","10"],["Ravi Shankar","9876543212","11"]].map((row, i) => (
+                  <tbody>{[
+                    ["Arun Kumar", "9876543210", bulkAllowedStandards[0]],
+                    ["Priya Devi", "9876543211", bulkAllowedStandards[bulkAllowedStandards.length > 1 ? 1 : 0]],
+                  ].map((row, i) => (
                     <tr key={i}>{row.map((c, j) => <td key={j} className="border border-border px-2 py-1">{c}</td>)}</tr>
                   ))}</tbody>
                 </table>
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setBulkStep(1)}>Back</Button>
-                <Button variant="outline" onClick={downloadTemplate}><Download className="h-4 w-4" /> Download Template</Button>
+                <Button variant="outline" onClick={() => downloadTemplate(bulkAllowedStandards)}><Download className="h-4 w-4" /> Download Template</Button>
               </DialogFooter>
             </div>
           )}
