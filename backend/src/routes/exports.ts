@@ -28,7 +28,54 @@ async function fetchSchoolHierarchy(schoolId: string) {
 
   return { school, village, panchayat, cluster };
 }
+function parseJson(value: any) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "object") return value;
+  if (typeof value !== "string") return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
 
+function ensureDateLabel(session: any, day: string | undefined) {
+  if (session?.date) return session.date;
+  if (day) return day;
+  return "—";
+}
+
+function buildAttendanceReportRows(students: any[], attendanceDetails: Record<string, string>, homeworkDetails: Record<string, string>, type: "student" | "volunteer") {
+  return students.map((st: any, index: number) => {
+    const attendance = attendanceDetails?.[st.id] === "present" ? "Present" : attendanceDetails?.[st.id] === "absent" ? "Absent" : "Pending";
+    const homework = type === "student"
+      ? homeworkDetails?.[st.id] === "completed" ? "Completed" : homeworkDetails?.[st.id] === "incomplete" ? "Not Completed" : "Pending"
+      : "—";
+
+    return {
+      sno: index + 1,
+      name: st.name || "—",
+      rollNo: st.rollNo || "—",
+      grade: st.grade || "—",
+      school: st.schoolName || st.college || "—",
+      village: st.villageName || "—",
+      panchayat: st.panchayatName || "—",
+      attendance,
+      homework,
+    };
+  });
+}
+
+function addTableHeader(doc: PDFDocument, headers: string[], widths: number[], margin: number) {
+  doc.font("Helvetica-Bold").fontSize(8);
+  let x = margin;
+  headers.forEach((header, index) => {
+    doc.text(header, x, doc.y, { width: widths[index], align: index === 0 ? "center" : "left" });
+    x += widths[index];
+  });
+  doc.moveDown(0.4);
+  doc.font("Helvetica");
+}
 // ════════════════════════════════════════════════════════════════
 // STUDENTS EXPORTS
 // ════════════════════════════════════════════════════════════════
@@ -301,27 +348,127 @@ exportsRouter.post("/volunteers/excel", async (req, res) => {
 
 exportsRouter.post("/attendance/pdf", async (req, res) => {
   try {
-    const { clusterId, sessionId, day } = req.body;
+    const {
+      clusterId,
+      sessionId,
+      day,
+      attendanceType = "student",
+    } = req.body as { clusterId?: string; sessionId?: string; day?: string; attendanceType?: string };
 
-    const doc = new PDFDocument();
+    const type = attendanceType === "volunteer" ? "volunteer" : "student";
+    const cluster = clusterId ? (await query("SELECT * FROM clusters WHERE id = ? LIMIT 1", [clusterId]))[0] : null;
+    const session = sessionId ? (await query("SELECT * FROM sessions WHERE id = ? LIMIT 1", [sessionId]))[0] : null;
+
+    const attendanceWhere = ["type = ?"];
+    const attendanceParams: any[] = [type];
+    if (clusterId) {
+      attendanceWhere.push("clusterId = ?");
+      attendanceParams.push(clusterId);
+    }
+    if (sessionId) {
+      attendanceWhere.push("sessionId = ?");
+      attendanceParams.push(sessionId);
+    }
+
+    const attendanceRow = (await query(`SELECT * FROM attendance WHERE ${attendanceWhere.join(" AND ")} ORDER BY id DESC LIMIT 1`, attendanceParams))[0] || null;
+    const homeworkRow = type === "student" && clusterId && sessionId
+      ? (await query("SELECT * FROM homework WHERE clusterId = ? AND sessionId = ? ORDER BY id DESC LIMIT 1", [clusterId, sessionId]))[0] || null
+      : null;
+
+    const rowsSource = type === "volunteer"
+      ? await query(
+          `SELECT v.*, v.college AS schoolName, v.year AS grade
+          FROM volunteers v
+          WHERE 1=1 ${clusterId ? "AND v.clusterId = ?" : ""}
+          ORDER BY v.college, v.year, v.name`,
+          clusterId ? [clusterId] : [],
+        )
+      : await query(
+          `SELECT s.*, sc.name AS schoolName, v.name AS villageName, p.name AS panchayatName
+          FROM students s
+          LEFT JOIN schools sc ON sc.id = s.schoolId
+          LEFT JOIN villages v ON v.id = sc.villageId
+          LEFT JOIN panchayats p ON p.id = v.panchayatId
+          WHERE 1=1 ${clusterId ? "AND s.clusterId = ?" : ""}
+          ORDER BY p.name, v.name, s.grade, s.name`,
+          clusterId ? [clusterId] : [],
+        );
+
+    const attendanceDetails = parseJson(attendanceRow?.details) || {};
+    const homeworkDetails = parseJson(homeworkRow?.details) || {};
+    const rows = buildAttendanceReportRows(rowsSource, attendanceDetails, homeworkDetails, type as "student" | "volunteer");
+
+    const presentCount = rows.filter((r) => r.attendance === "Present").length;
+    const absentCount = rows.filter((r) => r.attendance === "Absent").length;
+    const pendingCount = rows.filter((r) => r.attendance === "Pending").length;
+    const homeworkCompleted = rows.filter((r) => r.homework === "Completed").length;
+    const homeworkPending = rows.filter((r) => r.homework === "Not Completed" || r.homework === "Pending").length;
+
+    const doc = new PDFDocument({ size: "A4", margin: 40 });
     const filename = `attendance_${new Date().toISOString().split("T")[0]}.pdf`;
-    
+
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     doc.pipe(res);
 
-    doc.fontSize(20).text("Attendance Report", { align: "center" });
-    doc.fontSize(10).text(`Cluster: ${clusterId || "All"} | Session: ${sessionId || "All"} | Day: ${day || "—"}`, { align: "center" });
-    doc.text(`Generated: ${new Date().toLocaleDateString("en-IN")}`, { align: "center" });
+    doc.fontSize(18).text("Attendance Sheet", { align: "center" });
+    doc.moveDown(0.2);
+    doc.fontSize(10).text(`Cluster: ${cluster?.name || clusterId || "All"}`);
+    doc.text(`Session: ${session?.title || sessionId || "All"}`);
+    doc.text(`Day: ${session?.day ?? day ?? "—"}`);
+    doc.text(`Date: ${ensureDateLabel(session, day)}`);
+    doc.text(`Report Type: ${type === "student" ? "Student Attendance" : "Volunteer Attendance"}`);
+    doc.text(`Generated: ${new Date().toLocaleDateString("en-IN")}`);
     doc.moveDown();
 
-    doc.fontSize(12).text("Student Attendance Summary", { underline: true });
-    doc.fontSize(10).text("Present: — | Absent: — | Homework Completed: — | Homework Pending: —");
+    doc.fontSize(11).font("Helvetica-Bold").text("Summary", { underline: true });
+    doc.moveDown(0.2);
+    doc.font("Helvetica").fontSize(10);
+    doc.text(`Total records: ${rows.length}`);
+    doc.text(`Present: ${presentCount}`);
+    doc.text(`Absent: ${absentCount}`);
+    doc.text(`Pending: ${pendingCount}`);
+    if (type === "student") {
+      doc.text(`Homework completed: ${homeworkCompleted}`);
+      doc.text(`Homework pending: ${homeworkPending}`);
+    }
     doc.moveDown();
 
-    doc.fontSize(12).text("Volunteer Attendance Summary", { underline: true });
-    doc.fontSize(10).text("Present: — | Absent: —");
-    doc.moveDown();
+    const headers = type === "student"
+      ? ["S.No", "Student Name", "Village", "School", "Std", "Attendance", "Homework"]
+      : ["S.No", "Volunteer Name", "College", "Year", "Attendance"];
+    const widths = type === "student" ? [30, 140, 90, 90, 40, 60, 70] : [30, 170, 110, 80, 70];
+
+    addTableHeader(doc, headers, widths, 40);
+
+    rows.forEach((row) => {
+      if (doc.y > doc.page.height - 80) {
+        doc.addPage();
+        addTableHeader(doc, headers, widths, 40);
+      }
+      let x = 40;
+      if (type === "student") {
+        const values = [String(row.sno), row.name, row.village, row.school, row.grade, row.attendance, row.homework];
+        values.forEach((text, index) => {
+          doc.text(text, x, doc.y, { width: widths[index], align: index === 0 ? "center" : "left" });
+          x += widths[index];
+        });
+      } else {
+        const values = [String(row.sno), row.name, row.school, row.grade, row.attendance];
+        values.forEach((text, index) => {
+          doc.text(text, x, doc.y, { width: widths[index], align: index === 0 ? "center" : "left" });
+          x += widths[index];
+        });
+      }
+      doc.moveDown(0.45);
+    });
+
+    doc.addPage();
+    doc.fontSize(10).text("Prepared by:", 40, doc.y);
+    doc.text("Approved by:", 320, doc.y);
+    doc.moveDown(3);
+    doc.text("_______________________________", 40, doc.y, { width: 240 });
+    doc.text("_______________________________", 320, doc.y, { width: 240 });
 
     doc.end();
   } catch (err) {
@@ -332,19 +479,97 @@ exportsRouter.post("/attendance/pdf", async (req, res) => {
 
 exportsRouter.post("/attendance/excel", async (req, res) => {
   try {
-    const { clusterId, sessionId, day } = req.body;
+    const {
+      clusterId,
+      sessionId,
+      day,
+      attendanceType = "student",
+    } = req.body as { clusterId?: string; sessionId?: string; day?: string; attendanceType?: string };
+
+    const type = attendanceType === "volunteer" ? "volunteer" : "student";
+    const cluster = clusterId ? (await query("SELECT * FROM clusters WHERE id = ? LIMIT 1", [clusterId]))[0] : null;
+    const session = sessionId ? (await query("SELECT * FROM sessions WHERE id = ? LIMIT 1", [sessionId]))[0] : null;
+
+    const attendanceWhere = ["type = ?"];
+    const attendanceParams: any[] = [type];
+    if (clusterId) {
+      attendanceWhere.push("clusterId = ?");
+      attendanceParams.push(clusterId);
+    }
+    if (sessionId) {
+      attendanceWhere.push("sessionId = ?");
+      attendanceParams.push(sessionId);
+    }
+
+    const attendanceRow = (await query(`SELECT * FROM attendance WHERE ${attendanceWhere.join(" AND ")} ORDER BY id DESC LIMIT 1`, attendanceParams))[0] || null;
+    const homeworkRow = type === "student" && clusterId && sessionId
+      ? (await query("SELECT * FROM homework WHERE clusterId = ? AND sessionId = ? ORDER BY id DESC LIMIT 1", [clusterId, sessionId]))[0] || null
+      : null;
+
+    const rowsSource = type === "volunteer"
+      ? await query(
+          `SELECT v.*, v.college AS schoolName, v.year AS grade
+          FROM volunteers v
+          WHERE 1=1 ${clusterId ? "AND v.clusterId = ?" : ""}
+          ORDER BY v.college, v.year, v.name`,
+          clusterId ? [clusterId] : [],
+        )
+      : await query(
+          `SELECT s.*, sc.name AS schoolName, v.name AS villageName, p.name AS panchayatName
+          FROM students s
+          LEFT JOIN schools sc ON sc.id = s.schoolId
+          LEFT JOIN villages v ON v.id = sc.villageId
+          LEFT JOIN panchayats p ON p.id = v.panchayatId
+          WHERE 1=1 ${clusterId ? "AND s.clusterId = ?" : ""}
+          ORDER BY p.name, v.name, s.grade, s.name`,
+          clusterId ? [clusterId] : [],
+        );
+
+    const attendanceDetails = parseJson(attendanceRow?.details) || {};
+    const homeworkDetails = parseJson(homeworkRow?.details) || {};
+    const rows = buildAttendanceReportRows(rowsSource, attendanceDetails, homeworkDetails, type as "student" | "volunteer");
 
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet("Attendance");
 
-    worksheet.columns = [
-      { header: "Date", key: "date", width: 15 },
-      { header: "Session", key: "session", width: 20 },
-      { header: "Cluster", key: "cluster", width: 15 },
-      { header: "Type", key: "type", width: 12 },
-      { header: "Name", key: "name", width: 20 },
-      { header: "Status", key: "status", width: 12 },
-    ];
+    worksheet.addRow(["Attendance Report"]).font = { bold: true };
+    worksheet.mergeCells("A1:G1");
+    worksheet.addRow(["Cluster", cluster?.name || clusterId || "All", "Session", session?.title || sessionId || "All", "Day", session?.day ?? day ?? "—"]);
+    worksheet.addRow(["Date", ensureDateLabel(session, day), "Report Type", type === "student" ? "Student Attendance" : "Volunteer Attendance"]);
+    worksheet.addRow([]);
+
+    const headers = type === "student"
+      ? ["S.No", "Student Name", "Village", "School", "Standard", "Attendance", "Homework"]
+      : ["S.No", "Volunteer Name", "College", "Year", "Attendance"];
+    worksheet.addRow(headers);
+
+    rows.forEach((row) => {
+      const rowValues = type === "student"
+        ? [row.sno, row.name, row.village, row.school, row.grade, row.attendance, row.homework]
+        : [row.sno, row.name, row.school, row.grade, row.attendance];
+      worksheet.addRow(rowValues);
+    });
+
+    worksheet.columns = type === "student"
+      ? [
+          { key: "sno", width: 6 },
+          { key: "name", width: 24 },
+          { key: "village", width: 18 },
+          { key: "school", width: 22 },
+          { key: "grade", width: 10 },
+          { key: "attendance", width: 14 },
+          { key: "homework", width: 16 },
+        ]
+      : [
+          { key: "sno", width: 6 },
+          { key: "name", width: 28 },
+          { key: "school", width: 26 },
+          { key: "grade", width: 10 },
+          { key: "attendance", width: 14 },
+        ];
+
+    const headerRow = worksheet.getRow(5);
+    headerRow.font = { bold: true };
 
     const filename = `attendance_${new Date().toISOString().split("T")[0]}.xlsx`;
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
@@ -365,9 +590,9 @@ exportsRouter.post("/attendance/excel", async (req, res) => {
 exportsRouter.post("/finance/pdf", async (req, res) => {
   try {
     const { clusterId, sessionId, expenseIds = [] } = req.body;
-
     const whereClauses: string[] = ["1=1"];
     const queryParams: any[] = [];
+
     if (clusterId) {
       whereClauses.push("clusterId = ?");
       queryParams.push(clusterId);
@@ -381,67 +606,257 @@ exportsRouter.post("/finance/pdf", async (req, res) => {
       queryParams.push(...expenseIds);
     }
 
-    let expenses = await query(`SELECT * FROM expenses WHERE ${whereClauses.join(" AND ")}`, queryParams);
+    const expenses = await query(`SELECT * FROM expenses WHERE ${whereClauses.join(" AND ")}`, queryParams);
+    if (!expenses.length) {
+      return res.status(404).json({ error: "No finance records found for the selected filter." });
+    }
 
-    const doc = new PDFDocument();
-    const filename = `finance_${new Date().toISOString().split("T")[0]}.pdf`;
-    
+    function parseJsonArray(value: any) {
+      if (!value) return [];
+      if (Array.isArray(value)) return value;
+      if (typeof value === "string") {
+        try { return JSON.parse(value); } catch { return []; }
+      }
+      return [];
+    }
+
+    function formatAmount(value: any) {
+      return Number(value || 0);
+    }
+
+    function formatAmountLabel(value: any) {
+      return `₹${(Number(value) || 0).toLocaleString("en-IN")}`;
+    }
+
+    function formatDateLabel(value: any) {
+      if (!value) return "—";
+      const date = new Date(value);
+      if (isNaN(date.getTime())) return String(value);
+      return `${String(date.getDate()).padStart(2, "0")}/${String(date.getMonth() + 1).padStart(2, "0")}/${date.getFullYear()}`;
+    }
+
+    function sanitizeFilename(value: string) {
+      return String(value || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "_");
+    }
+
+    const firstExpense: any = expenses[0];
+    const academicYears = await query("SELECT name FROM academicYears WHERE active = 1 LIMIT 1", []);
+    const academicYear = academicYears[0]?.name || "—";
+    const clusterName = firstExpense?.clusterName || "—";
+    const collegeName = firstExpense?.collegeName || "—";
+    const spocName = firstExpense?.spocName || firstExpense?.submittedBy || "—";
+    const financerName = firstExpense?.financerName || "—";
+    const exportDate = formatDateLabel(firstExpense?.date || new Date().toISOString());
+
+    const sessionDays = Array.from(new Set(expenses.map((exp: any) => Number(exp.sessionDay)).filter((day: number) => day > 0))).sort((a: number, b: number) => a - b);
+    const sessionDayLabel = sessionDays.length === 0
+      ? "Day —"
+      : sessionDays.length === 1
+        ? `Day ${sessionDays[0]}`
+        : `Day ${sessionDays[0]} - Day ${sessionDays[sessionDays.length - 1]}`;
+
+    const filename = `TQI_Finance_${sanitizeFilename(clusterName)}_${sanitizeFilename(sessionDayLabel)}_${exportDate.replace(/\//g, "-")}.pdf`;
+
+    const travelRows: any[] = [];
+    const foodRows: any[] = [];
+    const stationeryRows: any[] = [];
+    const otherRows: any[] = [];
+    const billGroups: Array<{ label: string; bills: any[] }> = [];
+
+    expenses.forEach((exp: any) => {
+      const travelEntries = parseJsonArray(exp.travelEntries);
+      const foodEntries = parseJsonArray(exp.foodEntries);
+      const stationeryEntries = parseJsonArray(exp.stationeryEntries);
+      const stationeryBills = parseJsonArray(exp.stationeryBills);
+      const otherEntries = parseJsonArray(exp.otherEntries);
+
+      travelEntries.forEach((entry: any) => {
+        const volunteers = Number(entry.volunteers) || 0;
+        const amountPerPerson = Number(entry.amountPerPerson) || 0;
+        const totalAmount = volunteers * amountPerPerson;
+        travelRows.push({
+          description: `${entry.from || "—"} → ${entry.to || "—"}`,
+          volunteers,
+          countAmount: `${volunteers} × ₹${amountPerPerson}`,
+          totalAmount,
+          bills: parseJsonArray(entry.bills),
+          remarks: entry.remarks || "-",
+        });
+        if ((entry.bills ?? []).length) {
+          billGroups.push({ label: `${entry.from || "—"} → ${entry.to || "—"}`, bills: parseJsonArray(entry.bills) });
+        }
+      });
+
+      foodEntries.forEach((entry: any) => {
+        const amount = Number(entry.amount) || 0;
+        foodRows.push({ description: entry.category || entry.description || "Food", amount, bills: parseJsonArray(entry.bills) });
+        if ((entry.bills ?? []).length) {
+          billGroups.push({ label: entry.category || entry.description || "Food", bills: parseJsonArray(entry.bills) });
+        }
+      });
+
+      stationeryEntries.forEach((entry: any) => {
+        stationeryRows.push({ description: entry.description || "Stationery", amount: Number(entry.amount) || 0, bills: parseJsonArray(entry.bills) });
+      });
+      if (stationeryBills.length) {
+        billGroups.push({ label: "Stationery", bills: stationeryBills });
+      }
+
+      otherEntries.forEach((entry: any) => {
+        otherRows.push({ description: entry.description || "Other", amount: Number(entry.amount) || 0, bills: parseJsonArray(entry.bills), remarks: entry.remarks || "-" });
+        if ((entry.bills ?? []).length) {
+          billGroups.push({ label: entry.description || "Other", bills: parseJsonArray(entry.bills) });
+        }
+      });
+    });
+
+    const travelTotal = travelRows.reduce((sum, item) => sum + Number(item.totalAmount || 0), 0);
+    const foodTotal = foodRows.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+    const stationeryTotal = stationeryRows.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+    const otherTotal = otherRows.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+    const grandTotal = travelTotal + foodTotal + stationeryTotal + otherTotal;
+
+    const volunteers = clusterId
+      ? await query("SELECT name, college, `year` FROM volunteers WHERE clusterId = ? ORDER BY name", [clusterId])
+      : [];
+
+    const doc = new PDFDocument({ size: "A4", margin: 20, bufferPages: true, autoFirstPage: false });
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     doc.pipe(res);
 
-    doc.fontSize(20).text("Finance Settlement Report", { align: "center" });
-    doc.fontSize(10).text(`Generated: ${new Date().toLocaleDateString("en-IN")}`, { align: "center" });
-    doc.moveDown();
+    let bottomLimit = 0;
 
-    // Expense summary
-    const categories = ["Travel", "Food", "Stationery", "Other"];
-    const totals: Record<string, number> = {};
-    
-    categories.forEach(cat => {
-      totals[cat] = expenses.reduce((sum: number, e: any) => e.category === cat ? sum + (e.amount || 0) : sum, 0);
-    });
+    function addPage() {
+      doc.addPage();
+      bottomLimit = doc.page.height - 50;
+      drawHeader();
+      doc.moveDown(0.5);
+    }
 
-    doc.fontSize(12).text("Expense Summary", { underline: true });
-    categories.forEach(cat => {
-      doc.fontSize(10).text(`${cat}: ₹${(totals[cat] || 0).toLocaleString("en-IN")}`);
-    });
-    
-    const grandTotal = Object.values(totals).reduce((a: number, b: number) => a + b, 0);
-    doc.fontSize(11).text(`Grand Total: ₹${grandTotal.toLocaleString("en-IN")}`, { underline: true });
+    function drawHeader() {
+      doc.font("Helvetica-Bold").fontSize(14).text("TALENT QUEST FOR INDIA", { align: "center" });
+      doc.font("Helvetica").fontSize(10).text("STUDENTS HOLISTIC DEVELOPMENT PROGRAM", { align: "center" });
+      doc.font("Helvetica").fontSize(10).text(`ACADEMIC YEAR : ${academicYear}`, { align: "center" });
+      doc.moveDown(0.25);
+      doc.font("Helvetica-Bold").fontSize(12).text("Expenses Details", { align: "center" });
+      doc.moveDown(0.5);
 
-    // Attach expense details and embedded bills (if any)
-    for (const e of expenses) {
-      try {
-        doc.addPage();
-        doc.fontSize(12).text(`${e.category || 'Expense'} — ${e.description || ''}`, { underline: true });
-        doc.fontSize(10).text(`Amount: ₹${(e.amount || 0).toLocaleString('en-IN')}    Submitted By: ${e.submittedBy || '—'}`);
-        doc.moveDown(0.3);
+      const leftX = doc.page.margins.left;
+      const rightX = doc.page.width / 2 + 10;
+      const currentY = doc.y;
 
-        let bills: any[] = [];
-        try { bills = typeof e.bills === 'string' ? JSON.parse(e.bills) : (e.bills || []); } catch { bills = []; }
-        if (Array.isArray(bills) && bills.length) {
-          doc.fontSize(11).text('Attached Bills:', { underline: true });
-          for (const b of bills.slice(0, 8)) {
-            const url = b?.url || b?.originalUrl || b;
-            const buf = await loadImageBuffer(url);
-            if (buf) {
-              try {
-                doc.image(buf, { fit: [400, 300], align: 'center' });
-                doc.moveDown(0.2);
-                if (b?.name) doc.fontSize(9).text(b.name, { align: 'center' });
-                doc.moveDown(0.5);
-              } catch (err) {
-                doc.fontSize(9).text(`(Image embed failed) ${b?.name || url}`);
-              }
-            } else {
-              doc.fontSize(9).text(`(Image not found) ${b?.name || url}`);
-            }
-          }
-        }
-      } catch (inner) {
-        console.warn('Failed to render expense details for PDF', inner?.message || inner);
+      doc.font("Helvetica-Bold").fontSize(9).text("Cluster :", leftX, currentY);
+      doc.font("Helvetica").fontSize(9).text(clusterName, leftX + 55, currentY);
+      doc.font("Helvetica-Bold").fontSize(9).text("College :", rightX, currentY);
+      doc.font("Helvetica").fontSize(9).text(collegeName, rightX + 55, currentY);
+
+      const rowY = currentY + 14;
+      doc.font("Helvetica-Bold").fontSize(9).text("Session Day :", leftX, rowY);
+      doc.font("Helvetica").fontSize(9).text(sessionDayLabel, leftX + 75, rowY);
+      doc.font("Helvetica-Bold").fontSize(9).text("Date :", rightX, rowY);
+      doc.font("Helvetica").fontSize(9).text(exportDate, rightX + 40, rowY);
+
+      const rowY2 = rowY + 14;
+      doc.font("Helvetica-Bold").fontSize(9).text("SPOC Name :", leftX, rowY2);
+      doc.font("Helvetica").fontSize(9).text(spocName, leftX + 75, rowY2);
+      doc.font("Helvetica-Bold").fontSize(9).text("Finance Officer :", rightX, rowY2);
+      doc.font("Helvetica").fontSize(9).text(financerName, rightX + 90, rowY2);
+      doc.moveDown(3);
+      doc.moveTo(doc.page.margins.left, doc.y).lineTo(doc.page.width - doc.page.margins.right, doc.y).strokeColor("#cccccc").lineWidth(0.5).stroke();
+      doc.moveDown(0.6);
+    }
+
+    function drawFooter(pageNumber: number, pageCount: number) {
+      doc.font("Helvetica").fontSize(9).text(`Page ${pageNumber} of ${pageCount}`, 0, doc.page.height - 40, { width: doc.page.width, align: "center" });
+    }
+
+    function ensureSpace(height: number) {
+      if (doc.y + height > bottomLimit) {
+        addPage();
       }
+    }
+
+    function drawTableHeader(headers: string[], widths: number[]) {
+      doc.font("Helvetica-Bold").fontSize(9);
+      let x = doc.page.margins.left;
+      headers.forEach((header, index) => {
+        doc.text(header, x, doc.y, { width: widths[index], align: "center" });
+        x += widths[index];
+      });
+      doc.moveDown(0.4);
+      doc.moveTo(doc.page.margins.left, doc.y).lineTo(doc.page.width - doc.page.margins.right, doc.y).strokeColor("#bbbbbb").lineWidth(0.5).stroke();
+      doc.moveDown(0.3);
+      doc.font("Helvetica").fontSize(9);
+    }
+
+    function drawSectionHeading(title: string) {
+      ensureSpace(26);
+      doc.font("Helvetica-Bold").fontSize(11).text(title, { align: "left" });
+      doc.moveDown(0.2);
+    }
+
+    async function drawTravelSection() {
+      drawSectionHeading("Expenses Details");
+      const widths = [30, 250, 90, 105, 95, 110, 90];
+      drawTableHeader(["S.No", "Description", "No. of Volunteers", "Count × Amount", "Total Amount (₹)", "Bill / Ticket Attached", "Remarks (if any)"], widths);
+      if (!travelRows.length) {
+        ensureSpace(22);
+        doc.text("No travel expense entries found.", doc.page.margins.left, doc.y, { width: widths.reduce((sum, w) => sum + w, 0), align: "left" });
+        doc.moveDown(1);
+        return;
+      }
+      for (let index = 0; index < travelRows.length; index += 1) {
+        const row = travelRows[index];
+        const rowHeight = 70;
+        ensureSpace(rowHeight);
+        const currentY = doc.y;
+        let x = doc.page.margins.left;
+
+        doc.text(String(index + 1), x, currentY, { width: widths[0], align: "center" });
+        x += widths[0];
+        doc.text(row.description || "-", x, currentY, { width: widths[1], align: "left" });
+        x += widths[1];
+        doc.text(String(row.volunteers || "-"), x, currentY, { width: widths[2], align: "center" });
+        x += widths[2];
+        doc.text(row.countAmount || "-", x, currentY, { width: widths[3], align: "center" });
+        x += widths[3];
+        doc.text(formatAmountLabel(row.totalAmount), x, currentY, { width: widths[4], align: "right" });
+        x += widths[4];
+
+        const billCellX = x;
+        const billCellWidth = widths[5];
+        const imageUrl = row.bills?.[0]?.url || row.bills?.[0]?.originalUrl || row.bills?.[0]?.path || row.bills?.[0];
+        if (imageUrl) {
+          const buffer = await loadImageBuffer(imageUrl);
+          if (buffer) {
+            try {
+              doc.image(buffer, billCellX + 5, currentY, { fit: [billCellWidth - 10, rowHeight - 18], align: "center" });
+            } catch {
+              doc.text("Image failed", billCellX, currentY, { width: billCellWidth, align: "center" });
+            }
+          } else {
+            doc.text("No image", billCellX, currentY, { width: billCellWidth, align: "center" });
+          }
+        } else {
+          doc.text("-", billCellX, currentY, { width: billCellWidth, align: "center" });
+        }
+        x += billCellWidth;
+
+        doc.text(row.remarks || "-", x, currentY, { width: widths[6], align: "left" });
+        doc.y = currentY + rowHeight;
+        doc.moveDown(0.2);
+      }
+      doc.moveDown(0.3);
+    }
+
+    addPage();
+    await drawTravelSection();
+
+    const pageCount = doc.bufferedPageRange().count;
+    for (let i = 0; i < pageCount; i += 1) {
+      doc.switchToPage(i);
+      drawFooter(i + 1, pageCount);
     }
 
     doc.end();

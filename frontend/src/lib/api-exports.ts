@@ -95,19 +95,19 @@ export async function exportVolunteersExcel(clusterId?: string) {
 /**
  * Export attendance to PDF
  */
-export async function exportAttendancePdf(clusterId?: string, sessionId?: string, day?: string) {
+export async function exportAttendancePdf(clusterId?: string, sessionId?: string, day?: string, attendanceType: "student" | "volunteer" = "student") {
   const date = new Date().toISOString().split("T")[0];
   const filename = `attendance_${date}.pdf`;
-  return downloadFromApi("/export/attendance/pdf", filename, { clusterId, sessionId, day });
+  return downloadFromApi("/export/attendance/pdf", filename, { clusterId, sessionId, day, attendanceType });
 }
 
 /**
  * Export attendance to Excel
  */
-export async function exportAttendanceExcel(clusterId?: string, sessionId?: string, day?: string) {
+export async function exportAttendanceExcel(clusterId?: string, sessionId?: string, day?: string, attendanceType: "student" | "volunteer" = "student") {
   const date = new Date().toISOString().split("T")[0];
   const filename = `attendance_${date}.xlsx`;
-  return downloadFromApi("/export/attendance/excel", filename, { clusterId, sessionId, day });
+  return downloadFromApi("/export/attendance/excel", filename, { clusterId, sessionId, day, attendanceType });
 }
 
 /**

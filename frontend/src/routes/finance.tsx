@@ -32,8 +32,8 @@ type FoodCategory = "Breakfast" | "Lunch" | "Dinner" | "Refreshments";
 const FOOD_CATEGORIES: FoodCategory[] = ["Breakfast", "Lunch", "Dinner", "Refreshments"];
 
 interface TravelEntry { id: string; from: string; to: string; volunteers: number; amountPerPerson: number; remarks: string; bills: Bill[]; }
-interface FoodEntry   { id: string; category: FoodCategory; count: number; amount: number; bills: Bill[]; }
-interface StationeryEntry { id: string; itemName: string; quantity: number; amount: number; }
+interface FoodEntry   { id: string; category: FoodCategory; description: string; amount: number; bills: Bill[]; }
+interface StationeryEntry { id: string; description: string; amount: number; }
 interface OtherEntry  { id: string; description: string; amount: number; remarks: string; bills: Bill[]; }
 
 interface FinanceForm {
@@ -51,7 +51,7 @@ function blankForm(): FinanceForm {
     clusterName: "", collegeName: "", sessionName: "", sessionDay: 1,
     date: new Date().toISOString().slice(0, 10), spocName: "", financerName: "", volunteersCount: 0,
     travelEntries: [],
-    foodEntries: FOOD_CATEGORIES.map(c => ({ id: newId(), category: c, count: 0, amount: 0, bills: [] })),
+    foodEntries: FOOD_CATEGORIES.map(c => ({ id: newId(), category: c, description: c, amount: 0, bills: [] })),
     stationeryEntries: [],
     stationeryBills: [],
     otherEntries: [],
@@ -72,8 +72,8 @@ function numInput(val: number, onChange: (n: number) => void, className = "") {
 
 function calcTotals(form: FinanceForm) {
   const travel = (form.travelEntries ?? []).reduce((s, e) => s + (Number(e.volunteers)||0) * (Number(e.amountPerPerson)||0), 0);
-  const food   = (form.foodEntries ?? []).reduce((s, e) => s + (Number(e.count)||0) * (Number(e.amount)||0), 0);
-  const st     = (form.stationeryEntries ?? []).reduce((s, e) => s + (Number(e.quantity)||0) * (Number(e.amount)||0), 0);
+  const food   = (form.foodEntries ?? []).reduce((s, e) => s + (Number(e.amount)||0), 0);
+  const st     = (form.stationeryEntries ?? []).reduce((s, e) => s + (Number(e.amount)||0), 0);
   const other  = (form.otherEntries ?? []).reduce((s, e) => s + (Number(e.amount)||0), 0);
   return { travel, food, st, other, grand: travel + food + st + other };
 }
@@ -110,16 +110,14 @@ function buildPdf(form: FinanceForm, volunteers: {name:string;college?:string;ye
     const billHtml = (e.bills ?? []).map(b => b.url ? `<img src="${b.url}" style="max-width:55px;max-height:38px;object-fit:contain">` : "").join(" ");
     rows += `<tr>${td(String(sno++))}${td("Travel")}${td(`${e.from||"—"} → ${e.to||"—"}`)}${td(String(vol),"center")}${td(`${vol}×₹${amt}`,"center")}${td(inr(vol*amt),"right")}${td(billHtml||"—","center")}${td(e.remarks||"—")}</tr>`;
   });
-  (form.foodEntries ?? []).filter(e => (Number(e.count)||0) > 0 && (Number(e.amount)||0) > 0).forEach(e => {
-    const cnt = Number(e.count) || 0;
+  (form.foodEntries ?? []).filter(e => (Number(e.amount)||0) > 0).forEach(e => {
     const amt = Number(e.amount) || 0;
     const billHtml = (e.bills ?? []).map(b => b.url ? `<img src="${b.url}" style="max-width:55px;max-height:38px;object-fit:contain">` : "").join(" ");
-    rows += `<tr>${td(String(sno++))}${td("Food")}${td(e.category||"Food")}${td(String(cnt),"center")}${td(`${cnt}×₹${amt}`,"center")}${td(inr(cnt*amt),"right")}${td(billHtml||"—","center")}${td("—")}</tr>`;
+    rows += `<tr>${td(String(sno++))}${td("Food")}${td(e.category||"Food")}${td(e.description||"—")}${td("—","center")}${td(inr(amt),"right")}${td(billHtml||"—","center")}${td("—")}</tr>`;
   });
-  (form.stationeryEntries ?? []).filter(e => (Number(e.quantity)||0) > 0 && (Number(e.amount)||0) > 0).forEach(e => {
-    const qty = Number(e.quantity) || 0;
+  (form.stationeryEntries ?? []).filter(e => (Number(e.amount)||0) > 0).forEach(e => {
     const amt = Number(e.amount) || 0;
-    rows += `<tr>${td(String(sno++))}${td("Stationery")}${td(e.itemName||"Item")}${td(String(qty),"center")}${td(`${qty}×₹${amt}`,"center")}${td(inr(qty*amt),"right")}${td("—","center")}${td("—")}</tr>`;
+    rows += `<tr>${td(String(sno++))}${td("Stationery")}${td(e.description||"Item")}${td("—","center")}${td("—","center")}${td(inr(amt),"right")}${td("—","center")}${td("—")}</tr>`;
   });
   (form.otherEntries ?? []).filter(e => (Number(e.amount)||0) > 0).forEach(e => {
     const amt = Number(e.amount) || 0;
@@ -164,7 +162,7 @@ table{width:100%;border-collapse:collapse;margin-bottom:8px}
   <div><div class="lbl">Balance</div><div class="val">${inr(balance)}</div></div>
 </div>
 <h3>Expense Details</h3>
-<table><thead><tr>${th("S.No")}${th("Category")}${th("Description")}${th("Count")}${th("Count×Amount")}${th("Total")}${th("Bills")}${th("Remarks")}</tr></thead>
+  <table><thead><tr>${th("S.No")}${th("Category")}${th("Description")}${th("Amount")}${th("Bills")}${th("Remarks")}</tr></thead>
 <tbody>${rows}</tbody>
 <tfoot>
 ${subRow("Travel Total", t.travel)}
@@ -287,18 +285,31 @@ function FinancePage() {
   // Totals
   const totals = useMemo(() => calcTotals(form), [form]);
 
-  // Advance for cluster
-  const clusterAdvance = useMemo(() => {
-    const advs = s.advances.filter(a => a.clusterId === myClusterId).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    return advs[0]?.amount ?? 0;
-  }, [s.advances, myClusterId]);
-
-  const balance = clusterAdvance - totals.grand;
 
   // My submitted expenses
   const myExpenses = useMemo(() =>
     isCluster ? s.expenses.filter(e => e.clusterId === myClusterId) : s.expenses,
     [s.expenses, isCluster, myClusterId]);
+
+  const categoryTotals = useMemo(() => {
+    const travel = myExpenses.reduce((sum, exp) => {
+      const entries = Array.isArray(exp.travelEntries) ? exp.travelEntries : [];
+      return sum + entries.reduce((s:number, e:any) => s + Number(e.volunteers || 0) * Number(e.amountPerPerson || 0), 0);
+    }, 0);
+    const food = myExpenses.reduce((sum, exp) => {
+      const entries = Array.isArray(exp.foodEntries) ? exp.foodEntries : [];
+      return sum + entries.reduce((s:number, e:any) => s + Number(e.amount || 0), 0);
+    }, 0);
+    const stationery = myExpenses.reduce((sum, exp) => {
+      const entries = Array.isArray(exp.stationeryEntries) ? exp.stationeryEntries : [];
+      return sum + entries.reduce((s:number, e:any) => s + Number(e.amount || 0), 0);
+    }, 0);
+    const grand = travel + food + stationery + myExpenses.reduce((sum, exp) => {
+      const entries = Array.isArray(exp.otherEntries) ? exp.otherEntries : [];
+      return sum + entries.reduce((s:number, e:any) => s + Number(e.amount || 0), 0);
+    }, 0);
+    return { travel, food, stationery, grand };
+  }, [myExpenses]);
 
   // Volunteers for PDF
   const myVolunteers = useMemo(() =>
@@ -325,8 +336,26 @@ function FinancePage() {
       financerName: exp.financerName ?? "",
       volunteersCount: exp.volunteerCount ?? 0,
       travelEntries: (exp.travelEntries as TravelEntry[]) ?? [],
-      foodEntries: (exp.foodEntries as FoodEntry[]) ?? FOOD_CATEGORIES.map(c => ({ id: newId(), category: c, count: 0, amount: 0, bills: [] })),
-      stationeryEntries: (exp as any).stationeryEntries ?? [],
+      foodEntries: ((exp.foodEntries as any[]) ?? []).map((entry) => {
+        const amount = Number(entry.amount ?? 0);
+        const count = Number(entry.count ?? 0);
+        return {
+          id: entry.id ?? newId(),
+          category: entry.category ?? entry.description ?? "Food",
+          description: entry.description ?? entry.category ?? "Food",
+          amount: count > 0 ? count * amount : amount,
+          bills: entry.bills ?? [],
+        };
+      }).concat((exp.foodEntries ? [] : FOOD_CATEGORIES.map(c => ({ id: newId(), category: c, description: c, amount: 0, bills: [] })))),
+      stationeryEntries: ((exp as any).stationeryEntries ?? []).map((entry: any) => {
+        const amount = Number(entry.amount ?? 0);
+        const qty = Number(entry.quantity ?? 0);
+        return {
+          id: entry.id ?? newId(),
+          description: entry.description ?? entry.itemName ?? "Stationery",
+          amount: qty > 0 ? qty * amount : amount,
+        };
+      }),
       stationeryBills: exp.stationeryBills ?? [],
       otherEntries: (exp.otherEntries as OtherEntry[]) ?? [],
     });
@@ -337,8 +366,14 @@ function FinancePage() {
   const handleSave = async (status: "Pending" | "Submitted") => {
     if (!form.date) return toast.error("Date is required");
     const t = calcTotals(form);
-    const advAmt = s.advances.filter(a => a.clusterId === myClusterId).sort((a,b) => new Date(b.date).getTime()-new Date(a.date).getTime())[0]?.amount ?? 0;
-    const bal = advAmt - t.grand;
+    if (status === "Submitted") {
+      const missingTravel = form.travelEntries.filter(e => (Number(e.volunteers) > 0 || Number(e.amountPerPerson) > 0) && !(e.bills?.length > 0));
+      if (missingTravel.length) return toast.error("Please attach bills for all travel entries before submitting.");
+      const missingFood = form.foodEntries.filter(e => Number(e.amount) > 0 && !(e.bills?.length > 0));
+      if (missingFood.length) return toast.error("Please attach bills for all food entries before submitting.");
+      const hasStationery = (form.stationeryEntries ?? []).some(e => Number(e.amount) > 0);
+      if (hasStationery && !(form.stationeryBills?.length > 0)) return toast.error("Please attach stationery bills before submitting.");
+    }
     const allBills = [
       ...form.travelEntries.flatMap(e => e.bills),
       ...form.foodEntries.flatMap(e => e.bills),
@@ -357,17 +392,16 @@ function FinancePage() {
       spocName: form.spocName,
       submittedBy: form.spocName,
       volunteerCount: form.volunteersCount,
-      category: "Travel",
+      category: "Finance",
       amount: t.grand,
       grandTotal: t.grand,
-      balance: bal,
       description: form.sessionName,
       status,
       bills: allBills,
       travelEntries: form.travelEntries,
       foodEntries: form.foodEntries,
       stationeryEntries: form.stationeryEntries,
-      stationeryAmount: form.stationeryEntries.reduce((s, e) => s + e.quantity * e.amount, 0),
+      stationeryAmount: form.stationeryEntries.reduce((s, e) => s + Number(e.amount || 0), 0),
       stationeryBills: form.stationeryBills,
       otherEntries: form.otherEntries,
     };
@@ -380,12 +414,10 @@ function FinancePage() {
   // ── Super Admin Dashboard ─────────────────────────────────────────────────
   if (isSuper && saView === "dashboard") {
     const clusterCards = s.clusters.map(c => {
-      const advs = s.advances.filter(a => a.clusterId === c.id).sort((a,b)=>new Date(b.date).getTime()-new Date(a.date).getTime());
-      const adv = advs[0]?.amount ?? 0;
-      const exps = s.expenses.filter(e => e.clusterId === c.id && (e.status==="Submitted"||e.status==="Approved"));
+        const exps = s.expenses.filter(e => e.clusterId === c.id && (e.status==="Submitted"||e.status==="Approved"));
       const submitted = exps.reduce((s,e)=>s+(e.grandTotal||e.amount||0),0);
       const lastExp = exps.sort((a,b)=>new Date(b.date).getTime()-new Date(a.date).getTime())[0];
-      return { cluster: c, adv, submitted, balance: adv-submitted, sessions: exps.length, lastDate: lastExp?.date ?? null };
+      return { cluster: c, submitted, sessions: exps.length, lastDate: lastExp?.date ?? null };
     });
     return (
       <AppShell>
@@ -444,7 +476,7 @@ function FinancePage() {
           </div>
           {/* Cluster Cards */}
           <div className="space-y-3">
-            {clusterCards.map(({ cluster, adv, submitted, balance: bal, sessions }) => (
+            {clusterCards.map(({ cluster, submitted, sessions }) => (
               <button key={cluster.id} onClick={() => goToCluster(cluster.id)}
                 className="w-full rounded-xl border bg-white shadow-sm px-4 py-4 flex items-center justify-between hover:bg-blue-50 hover:border-blue-200 transition-colors group text-left">
                 <div className="flex items-center gap-4">
@@ -455,9 +487,7 @@ function FinancePage() {
                     <div className="font-bold text-base text-slate-800 uppercase">{cluster.name}</div>
                     <div className="flex flex-wrap gap-3 text-xs text-slate-500 mt-0.5">
                       <span>Days Submitted: <strong className="text-slate-700">{sessions} / 8</strong></span>
-                      <span>Advance: <strong className="text-blue-700">{inr(adv)}</strong></span>
                       <span>Total Expense: <strong className="text-slate-700">{inr(submitted)}</strong></span>
-                      <span>Balance: <strong className={bal < 0 ? "text-red-600" : "text-green-600"}>{inr(bal)}</strong></span>
                     </div>
                   </div>
                 </div>
@@ -500,8 +530,6 @@ function FinancePage() {
   if (isSuper && saView === "cluster" && saClusterId) {
     const cluster = s.clusters.find(c => c.id === saClusterId);
     const clusterExps = s.expenses.filter(e => e.clusterId === saClusterId && (e.status==="Submitted"||e.status==="Approved")).sort((a,b)=>a.sessionDay-b.sessionDay);
-    const advs = s.advances.filter(a => a.clusterId === saClusterId).sort((a,b)=>new Date(b.date).getTime()-new Date(a.date).getTime());
-    const totalAdv = advs[0]?.amount ?? 0;
     const totalExp = clusterExps.reduce((s,e)=>s+(e.grandTotal||e.amount||0),0);
     return (
       <AppShell>
@@ -518,15 +546,25 @@ function FinancePage() {
             <div><h2 className="text-xl font-bold">{cluster?.name} — Finance</h2><p className="text-sm text-muted-foreground">{clusterExps.length} submission(s)</p></div>
             <Button variant="outline" size="sm"><Download className="h-4 w-4 mr-1" />Export Excel</Button>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5">
-            <div className="rounded-xl bg-white border shadow-sm p-3"><p className="text-xs text-slate-500">Advance Released</p><p className="text-2xl font-bold text-blue-700">{inr(totalAdv)}</p></div>
-            <div className="rounded-xl bg-white border shadow-sm p-3"><p className="text-xs text-slate-500">Total Submitted</p><p className="text-2xl font-bold text-slate-800">{inr(totalExp)}</p></div>
-            <div className="rounded-xl bg-white border shadow-sm p-3"><p className="text-xs text-slate-500">Balance</p><p className={`text-2xl font-bold ${totalAdv-totalExp<0?"text-red-600":"text-green-600"}`}>{inr(totalAdv-totalExp)}</p></div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+            <div className="rounded-xl bg-white border shadow-sm p-3"><p className="text-xs text-slate-500">Travel Total</p><p className="text-2xl font-bold text-slate-800">{inr(clusterExps.reduce((sum, exp) => {
+              const t = (exp.travelEntries as any[])?.reduce((s:number,e:any)=>s+e.volunteers*e.amountPerPerson,0)??0;
+              return sum + t;
+            },0))}</p></div>
+            <div className="rounded-xl bg-white border shadow-sm p-3"><p className="text-xs text-slate-500">Food Total</p><p className="text-2xl font-bold text-slate-800">{inr(clusterExps.reduce((sum, exp) => {
+              const f = (exp.foodEntries as any[])?.reduce((s:number,e:any)=>s+Number(e.amount||0),0)??0;
+              return sum + f;
+            },0))}</p></div>
+            <div className="rounded-xl bg-white border shadow-sm p-3"><p className="text-xs text-slate-500">Stationery Total</p><p className="text-2xl font-bold text-slate-800">{inr(clusterExps.reduce((sum, exp) => {
+              const st = (exp.stationeryEntries as any[])?.reduce((s:number,e:any)=>s+Number(e.amount||0),0)??0;
+              return sum + st;
+            },0))}</p></div>
+            <div className="rounded-xl bg-white border shadow-sm p-3"><p className="text-xs text-slate-500">Grand Total</p><p className="text-2xl font-bold text-slate-800">{inr(clusterExps.reduce((sum, exp) => sum + Number(exp.grandTotal || exp.amount || 0), 0))}</p></div>
           </div>
           {clusterExps.length === 0 && <div className="text-center py-12 text-slate-400">No finance submissions for this cluster yet.</div>}
           <div className="space-y-3">
             {clusterExps.map(exp => {
-              const t = { travel: (exp.travelEntries as any[])?.reduce((s:number,e:any)=>s+e.volunteers*e.amountPerPerson,0)??0, food: (exp.foodEntries as any[])?.reduce((s:number,e:any)=>s+e.count*e.amount,0)??0, st: (exp.stationeryEntries as any[])?.reduce((s:number,e:any)=>s+e.quantity*e.amount,0)??0, other: (exp.otherEntries as any[])?.reduce((s:number,e:any)=>s+e.amount,0)??0 };
+              const t = { travel: (exp.travelEntries as any[])?.reduce((s:number,e:any)=>s+e.volunteers*e.amountPerPerson,0)??0, food: (exp.foodEntries as any[])?.reduce((s:number,e:any)=>s+Number(e.amount||0),0)??0, st: (exp.stationeryEntries as any[])?.reduce((s:number,e:any)=>s+Number(e.amount||0),0)??0, other: (exp.otherEntries as any[])?.reduce((s:number,e:any)=>s+Number(e.amount||0),0)??0 };
               return (
                 <button key={exp.id} onClick={() => goToDay(exp.id)}
                   className="w-full rounded-xl border bg-white shadow-sm px-4 py-3 flex items-center justify-between hover:bg-blue-50 hover:border-blue-200 transition-colors group text-left">
@@ -562,13 +600,10 @@ function FinancePage() {
     const stEntries = (exp as any).stationeryEntries as StationeryEntry[] ?? [];
     const oEntries = (exp.otherEntries as OtherEntry[]) ?? [];
     const tTotal = tEntries.reduce((s,e)=>s+e.volunteers*e.amountPerPerson,0);
-    const fTotal = fEntries.reduce((s,e)=>s+e.count*e.amount,0);
-    const stTotal = stEntries.reduce((s,e)=>s+e.quantity*e.amount,0);
-    const oTotal = oEntries.reduce((s,e)=>s+e.amount,0);
+    const fTotal = fEntries.reduce((s,e)=>s+Number(e.amount||0),0);
+    const stTotal = stEntries.reduce((s,e)=>s+Number(e.amount||0),0);
+    const oTotal = oEntries.reduce((s,e)=>s+Number(e.amount||0),0);
     const grand = tTotal+fTotal+stTotal+oTotal;
-    const advs = s.advances.filter(a=>a.clusterId===exp.clusterId).sort((a,b)=>new Date(b.date).getTime()-new Date(a.date).getTime());
-    const adv = advs[0]?.amount ?? 0;
-    const bal = adv - grand;
     const clusterVols = s.volunteers.filter(v=>v.clusterId===exp.clusterId);
     const formData: FinanceForm = { clusterName: exp.clusterName??"", collegeName: exp.collegeName??"", sessionName: exp.sessionName??exp.description??"", sessionDay: exp.sessionDay??1, date: exp.date, spocName: exp.spocName??exp.submittedBy??"", financerName: exp.financerName??"", volunteersCount: exp.volunteerCount??0, travelEntries: tEntries, foodEntries: fEntries, stationeryEntries: stEntries, stationeryBills: exp.stationeryBills??[], otherEntries: oEntries };
 
@@ -625,8 +660,6 @@ function FinancePage() {
               {[["College",exp.collegeName],["Cluster",exp.clusterName],["Session",exp.sessionName||`Day ${exp.sessionDay}`],["Day",`Day ${exp.sessionDay}`],["Date",fmtDate(exp.date)],["Volunteers",String(exp.volunteerCount??0)],["SPOC",exp.spocName||exp.submittedBy],["Financer",exp.financerName]].map(([l,v])=>(
                 <div key={l}><p className="text-slate-400">{l}</p><p className="font-medium text-slate-800">{v||"—"}</p></div>
               ))}
-              <div><p className="text-slate-400">Advance Released</p><p className="font-bold text-blue-700">{inr(adv)}</p></div>
-              <div><p className="text-slate-400">Balance</p><p className={`font-bold ${bal<0?"text-red-600":"text-green-600"}`}>{inr(bal)}</p></div>
             </div>
           </div>
           {/* Expense Table */}
@@ -635,14 +668,12 @@ function FinancePage() {
               <thead><tr className="bg-slate-50 border-b text-slate-500">{["S.No","Category","Description","Volunteers","Count×Amount","Total","Bills","Remarks"].map(h=><th key={h} className="px-3 py-2 text-left font-semibold">{h}</th>)}</tr></thead>
               <tbody>
                 {tEntries.map((e,i)=><tr key={e.id} className="border-b hover:bg-slate-50"><td className="px-3 py-2">{i+1}</td><td className="px-3 py-2">Travel</td><td className="px-3 py-2 font-medium">{e.from} → {e.to}</td><td className="px-3 py-2 text-center">{e.volunteers}</td><td className="px-3 py-2">{e.volunteers}×₹{e.amountPerPerson}</td><td className="px-3 py-2 font-semibold text-right">{inr(e.volunteers*e.amountPerPerson)}</td><td className="px-3 py-2">{e.bills.map(b=>b.url?<img key={b.id} src={b.url} alt="" className="h-8 w-8 object-contain rounded border inline-block mr-1"/>:null)}</td><td className="px-3 py-2 text-slate-500">{e.remarks||"—"}</td></tr>)}
-                {fEntries.filter(e=>e.count>0&&e.amount>0).map((e,i)=><tr key={e.id} className="border-b hover:bg-slate-50"><td className="px-3 py-2">{tEntries.length+i+1}</td><td className="px-3 py-2">Food</td><td className="px-3 py-2 font-medium">{e.category}</td><td className="px-3 py-2 text-center">{e.count}</td><td className="px-3 py-2">{e.count}×₹{e.amount}</td><td className="px-3 py-2 font-semibold text-right">{inr(e.count*e.amount)}</td><td className="px-3 py-2">{e.bills.map(b=>b.url?<img key={b.id} src={b.url} alt="" className="h-8 w-8 object-contain rounded border inline-block mr-1"/>:null)}</td><td className="px-3 py-2">—</td></tr>)}
-                {stEntries.filter(e=>e.quantity>0&&e.amount>0).map((e,i)=><tr key={e.id} className="border-b hover:bg-slate-50"><td className="px-3 py-2">{tEntries.length+fEntries.filter(f=>f.count>0).length+i+1}</td><td className="px-3 py-2">Stationery</td><td className="px-3 py-2 font-medium">{e.itemName}</td><td className="px-3 py-2 text-center">{e.quantity}</td><td className="px-3 py-2">{e.quantity}×₹{e.amount}</td><td className="px-3 py-2 font-semibold text-right">{inr(e.quantity*e.amount)}</td><td className="px-3 py-2">—</td><td className="px-3 py-2">—</td></tr>)}
-                {oEntries.filter(e=>e.amount>0).map((e,i)=><tr key={e.id} className="border-b hover:bg-slate-50"><td className="px-3 py-2">{tEntries.length+fEntries.filter(f=>f.count>0).length+stEntries.filter(s=>s.quantity>0).length+i+1}</td><td className="px-3 py-2">Other</td><td className="px-3 py-2 font-medium">{e.description||"Misc"}</td><td className="px-3 py-2 text-center">—</td><td className="px-3 py-2">—</td><td className="px-3 py-2 font-semibold text-right">{inr(e.amount)}</td><td className="px-3 py-2">{e.bills.map(b=>b.url?<img key={b.id} src={b.url} alt="" className="h-8 w-8 object-contain rounded border inline-block mr-1"/>:null)}</td><td className="px-3 py-2 text-slate-500">{e.remarks||"—"}</td></tr>)}
+                {fEntries.filter(e=>Number(e.amount)>0).map((e,i)=><tr key={e.id} className="border-b hover:bg-slate-50"><td className="px-3 py-2">{tEntries.length+i+1}</td><td className="px-3 py-2">Food</td><td className="px-3 py-2 font-medium">{e.description||e.category||"Food"}</td><td className="px-3 py-2 text-center">—</td><td className="px-3 py-2">—</td><td className="px-3 py-2 font-semibold text-right">{inr(Number(e.amount)||0)}</td><td className="px-3 py-2">{e.bills.map(b=>b.url?<img key={b.id} src={b.url} alt="" className="h-8 w-8 object-contain rounded border inline-block mr-1"/>:null)}</td><td className="px-3 py-2">—</td></tr>)}
+                {stEntries.filter(e=>Number(e.amount)>0).map((e,i)=><tr key={e.id} className="border-b hover:bg-slate-50"><td className="px-3 py-2">{tEntries.length+fEntries.filter(f=>Number(f.amount)>0).length+i+1}</td><td className="px-3 py-2">Stationery</td><td className="px-3 py-2 font-medium">{e.description||"Stationery"}</td><td className="px-3 py-2 text-center">—</td><td className="px-3 py-2">—</td><td className="px-3 py-2 font-semibold text-right">{inr(Number(e.amount)||0)}</td><td className="px-3 py-2">{exp.stationeryBills?.map(b=>b.url?<img key={b.id} src={b.url} alt="" className="h-8 w-8 object-contain rounded border inline-block mr-1"/>:null)}</td><td className="px-3 py-2">—</td></tr>)}
+                {oEntries.filter(e=>Number(e.amount)>0).map((e,i)=><tr key={e.id} className="border-b hover:bg-slate-50"><td className="px-3 py-2">{tEntries.length+fEntries.filter(f=>Number(f.amount)>0).length+stEntries.filter(s=>Number(s.amount)>0).length+i+1}</td><td className="px-3 py-2">Other</td><td className="px-3 py-2 font-medium">{e.description||"Misc"}</td><td className="px-3 py-2 text-center">—</td><td className="px-3 py-2">—</td><td className="px-3 py-2 font-semibold text-right">{inr(Number(e.amount)||0)}</td><td className="px-3 py-2">{e.bills.map(b=>b.url?<img key={b.id} src={b.url} alt="" className="h-8 w-8 object-contain rounded border inline-block mr-1"/>:null)}</td><td className="px-3 py-2 text-slate-500">{e.remarks||"—"}</td></tr>)}
               </tbody>
               <tfoot>
                 <tr className="bg-blue-50 border-t font-bold text-blue-700"><td colSpan={4}/><td className="px-3 py-2 text-right text-sm">Grand Total</td><td className="px-3 py-2 text-right text-sm">{inr(grand)}</td><td colSpan={2}/></tr>
-                <tr className="bg-green-50 border-t font-bold text-green-700"><td colSpan={4}/><td className="px-3 py-2 text-right text-sm">Advance Released</td><td className="px-3 py-2 text-right text-sm">{inr(adv)}</td><td colSpan={2}/></tr>
-                <tr className={`border-t font-bold ${bal<0?"bg-red-50 text-red-600":"bg-emerald-50 text-emerald-700"}`}><td colSpan={4}/><td className="px-3 py-2 text-right text-sm">Balance</td><td className="px-3 py-2 text-right text-sm">{inr(bal)}</td><td colSpan={2}/></tr>
               </tfoot>
             </table>
           </div>
@@ -666,8 +697,6 @@ function FinancePage() {
   }
 
   // ── Cluster Admin Main View ───────────────────────────────────────────────
-  const clusterAdv = s.advances.filter(a=>a.clusterId===myClusterId).sort((a,b)=>new Date(b.date).getTime()-new Date(a.date).getTime())[0];
-
   return (
     <AppShell>
       <div className="px-4 sm:px-6 py-6">
@@ -677,32 +706,42 @@ function FinancePage() {
           <Button onClick={openCreate}><Plus className="h-4 w-4 mr-2"/>New Finance Entry</Button>
         </div>
 
-        {/* Advance Info */}
-        {clusterAdv && (
-          <div className="mb-5 rounded-xl bg-blue-50 border border-blue-200 p-4 flex items-center justify-between flex-wrap gap-3">
-            <div><p className="text-xs text-blue-600 font-semibold">Advance Released</p><p className="text-2xl font-bold text-blue-700">{inr(clusterAdv.amount)}</p><p className="text-xs text-blue-500 mt-0.5">Released on {fmtDate(clusterAdv.date)} by {clusterAdv.releasedBy||"Super Admin"}</p></div>
-            <div className="text-right"><p className="text-xs text-slate-500">Submitted so far</p><p className="text-xl font-bold text-slate-800">{inr(myExpenses.filter(e=>e.status!=="Pending").reduce((s,e)=>s+(e.grandTotal||e.amount||0),0))}</p></div>
-          </div>
-        )}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+          <div className="rounded-xl bg-white border shadow-sm p-3"><p className="text-xs text-slate-500">Travel Total</p><p className="text-2xl font-bold text-slate-800">{inr(myExpenses.reduce((sum, exp) => {
+            const entries = Array.isArray(exp.travelEntries) ? exp.travelEntries : [];
+            return sum + entries.reduce((s:number, e:any) => s + Number(e.volunteers || 0) * Number(e.amountPerPerson || 0), 0);
+          }, 0))}</p></div>
+          <div className="rounded-xl bg-white border shadow-sm p-3"><p className="text-xs text-slate-500">Food Total</p><p className="text-2xl font-bold text-slate-800">{inr(myExpenses.reduce((sum, exp) => {
+            const entries = Array.isArray(exp.foodEntries) ? exp.foodEntries : [];
+            return sum + entries.reduce((s:number, e:any) => s + Number(e.amount || 0), 0);
+          }, 0))}</p></div>
+          <div className="rounded-xl bg-white border shadow-sm p-3"><p className="text-xs text-slate-500">Stationery Total</p><p className="text-2xl font-bold text-slate-800">{inr(myExpenses.reduce((sum, exp) => {
+            const entries = Array.isArray(exp.stationeryEntries) ? exp.stationeryEntries : [];
+            return sum + entries.reduce((s:number, e:any) => s + Number(e.amount || 0), 0);
+          }, 0))}</p></div>
+          <div className="rounded-xl bg-white border shadow-sm p-3"><p className="text-xs text-slate-500">Grand Total</p><p className="text-2xl font-bold text-slate-800">{inr(myExpenses.reduce((sum, exp) => {
+            const travel = Array.isArray(exp.travelEntries) ? exp.travelEntries.reduce((s:number, e:any) => s + Number(e.volunteers || 0) * Number(e.amountPerPerson || 0), 0) : 0;
+            const food = Array.isArray(exp.foodEntries) ? exp.foodEntries.reduce((s:number, e:any) => s + Number(e.amount || 0), 0) : 0;
+            const stationery = Array.isArray(exp.stationeryEntries) ? exp.stationeryEntries.reduce((s:number, e:any) => s + Number(e.amount || 0), 0) : 0;
+            const other = Array.isArray(exp.otherEntries) ? exp.otherEntries.reduce((s:number, e:any) => s + Number(e.amount || 0), 0) : 0;
+            return sum + travel + food + stationery + other;
+          }, 0))}</p></div>
+        </div>
 
         {/* Expense Table */}
         <div className="rounded-xl border bg-white shadow-sm overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 border-b text-xs text-slate-500">
-              <tr>{["Session","Date","Grand Total","Advance","Balance","Status","Actions"].map(h=><th key={h} className="px-3 py-2.5 text-left font-semibold">{h}</th>)}</tr>
+              <tr>{["Session","Date","Grand Total","Status","Actions"].map(h=><th key={h} className="px-3 py-2.5 text-left font-semibold">{h}</th>)}</tr>
             </thead>
             <tbody>
               {myExpenses.length===0&&<tr><td colSpan={7} className="px-3 py-10 text-center text-slate-400">No finance entries yet. Click "New Finance Entry" to start.</td></tr>}
               {myExpenses.map(exp=>{
-                const adv = s.advances.filter(a=>a.clusterId===exp.clusterId).sort((a,b)=>new Date(b.date).getTime()-new Date(a.date).getTime())[0]?.amount??0;
-                const bal = adv-(exp.grandTotal||exp.amount||0);
                 return(
                   <tr key={exp.id} className="border-t hover:bg-slate-50/50 transition-colors">
                     <td className="px-3 py-2">Day {exp.sessionDay}{exp.sessionName?` — ${exp.sessionName}`:""}</td>
                     <td className="px-3 py-2">{fmtDate(exp.date)}</td>
                     <td className="px-3 py-2 font-semibold">{inr(exp.grandTotal||exp.amount||0)}</td>
-                    <td className="px-3 py-2 text-blue-700 font-semibold">{inr(adv)}</td>
-                    <td className={`px-3 py-2 font-semibold ${bal<0?"text-red-600":"text-green-600"}`}>{inr(bal)}</td>
                     <td className="px-3 py-2">
                       <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold ${exp.status==="Submitted"?"bg-blue-100 text-blue-700":exp.status==="Approved"?"bg-green-100 text-green-700":exp.status==="Rejected"?"bg-red-100 text-red-600":exp.status==="Locked"?"bg-slate-200 text-slate-600":"bg-yellow-100 text-yellow-700"}`}>{exp.status}</span>
                     </td>
@@ -802,16 +841,12 @@ function FinancePage() {
               <h3 className="font-semibold flex items-center gap-1.5"><Utensils className="h-4 w-4"/>Food</h3>
               <div className="grid gap-3 sm:grid-cols-2">
                 {FOOD_CATEGORIES.map(cat=>{
-                  const entry=form.foodEntries.find(f=>f.category===cat)?? { id: newId(), category: cat, count:0, amount:0, bills:[] };
+                  const entry=form.foodEntries.find(f=>f.category===cat)?? { id: newId(), category: cat, description: cat, amount:0, bills:[] };
                   const update=(field:string,val:any)=>setForm(p=>({...p,foodEntries:p.foodEntries.some(f=>f.category===cat)?p.foodEntries.map(f=>f.category===cat?{...f,[field]:val}:f):[...p.foodEntries,{...entry,[field]:val}]}));
                   return(
                     <Card key={cat} className="shadow-sm"><CardHeader className="py-2 px-4"><CardTitle className="text-sm">{cat}</CardTitle></CardHeader>
                       <CardContent className="pb-4 px-4 space-y-2">
-                        <div className="grid grid-cols-2 gap-2">
-                          <div><Label className="text-xs">Count</Label><Input type="number" min="0" value={entry.count||""} placeholder="0" onChange={e=>update("count",+e.target.value||0)}/></div>
-                          <div><Label className="text-xs">Amount/Person (₹)</Label><Input type="number" min="0" value={entry.amount||""} placeholder="0" onChange={e=>update("amount",+e.target.value||0)}/></div>
-                        </div>
-                        {entry.count>0&&entry.amount>0&&<div className="text-sm font-bold text-blue-700">{entry.count} × ₹{entry.amount} = {inr(entry.count*entry.amount)}</div>}
+                        <div><Label className="text-xs">Amount (₹)</Label><Input type="number" min="0" value={entry.amount||""} placeholder="0" onChange={e=>update("amount",+e.target.value||0)}/></div>
                         <BillManager bills={entry.bills??[]} onChange={bills=>update("bills",bills)}/>
                       </CardContent>
                     </Card>
@@ -825,15 +860,13 @@ function FinancePage() {
           {activeTab==="stationery"&&(
             <div className="space-y-3">
               <div className="flex justify-between items-center"><span className="font-semibold flex items-center gap-1.5"><PenLine className="h-4 w-4"/>Stationery</span>
-                <Button size="sm" variant="outline" onClick={()=>setForm(p=>({...p,stationeryEntries:[...p.stationeryEntries,{id:newId(),itemName:"",quantity:0,amount:0}]}))}><Plus className="h-3.5 w-3.5 mr-1"/>Add Item</Button>
+                <Button size="sm" variant="outline" onClick={()=>setForm(p=>({...p,stationeryEntries:[...p.stationeryEntries,{id:newId(),description:"",amount:0}]}))}><Plus className="h-3.5 w-3.5 mr-1"/>Add Item</Button>
               </div>
               {form.stationeryEntries.map((e,i)=>(
-                <div key={e.id} className="grid gap-2 sm:grid-cols-4 items-end rounded-lg border p-3">
-                  <div><Label className="text-xs">Item Name</Label><Input value={e.itemName} placeholder="e.g. Marker" onChange={ev=>setForm(p=>({...p,stationeryEntries:p.stationeryEntries.map((s,j)=>j===i?{...s,itemName:ev.target.value}:s)}))}/></div>
-                  <div><Label className="text-xs">Quantity</Label><Input type="number" min="0" value={e.quantity||""} placeholder="0" onChange={ev=>setForm(p=>({...p,stationeryEntries:p.stationeryEntries.map((s,j)=>j===i?{...s,quantity:+ev.target.value||0}:s)}))}/></div>
+                <div key={e.id} className="grid gap-2 sm:grid-cols-3 items-end rounded-lg border p-3">
+                  <div><Label className="text-xs">Description</Label><Input value={e.description} placeholder="e.g. Marker" onChange={ev=>setForm(p=>({...p,stationeryEntries:p.stationeryEntries.map((s,j)=>j===i?{...s,description:ev.target.value}:s)}))}/></div>
                   <div><Label className="text-xs">Amount (₹)</Label><Input type="number" min="0" value={e.amount||""} placeholder="0" onChange={ev=>setForm(p=>({...p,stationeryEntries:p.stationeryEntries.map((s,j)=>j===i?{...s,amount:+ev.target.value||0}:s)}))}/></div>
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-sm font-bold text-blue-700">{inr(e.quantity*e.amount)}</div>
+                  <div className="flex items-center justify-end">
                     <Button size="sm" variant="ghost" className="text-destructive p-1" onClick={()=>setForm(p=>({...p,stationeryEntries:p.stationeryEntries.filter((_,j)=>j!==i)}))}><Trash2 className="h-4 w-4"/></Button>
                   </div>
                 </div>
@@ -871,8 +904,6 @@ function FinancePage() {
             {totals.st>0&&<div className="flex justify-between"><span>Stationery Total</span><b>{inr(totals.st)}</b></div>}
             {totals.other>0&&<div className="flex justify-between"><span>Other Total</span><b>{inr(totals.other)}</b></div>}
             <div className="flex justify-between border-t pt-2 font-bold text-base text-blue-700"><span>Grand Total</span><span>{inr(totals.grand)}</span></div>
-            <div className="flex justify-between text-xs text-slate-500"><span>Advance Released</span><span>{inr(clusterAdvance)}</span></div>
-            <div className={`flex justify-between font-semibold ${balance<0?"text-red-600":"text-green-600"}`}><span>Balance</span><span>{inr(balance)}</span></div>
           </div>
 
           <DialogFooter className="gap-2">
